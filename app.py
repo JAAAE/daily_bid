@@ -68,7 +68,7 @@ def crawl_live_data(date_list):
     return all_rows
 
 # 🌟 每 8 小時 (28800秒) 自動過期，過期後只要有人進網頁，就會自動觸發背景爬蟲更新
-@st.cache_data(ttl=28800)
+@st.cache_data(ttl=2)
 def get_integrated_data():
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
