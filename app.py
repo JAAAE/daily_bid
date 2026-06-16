@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import requests
 import streamlit as st
+import io
+import base64
 
 st.set_page_config(page_title="政府電子採購網決標觀測站", layout="wide")
 
@@ -17,6 +19,11 @@ REGIONS = {
     "離島": ['澎湖縣', '金門縣', '連江縣']
 }
 CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in cities}
+
+# --- GitHub 倉庫配置 (請確認與你的儲存庫路徑一致) ---
+REPO_OWNER = "JAAAE"
+REPO_NAME = "daily_bid"
+FILE_PATH = "data/採購網_決標彙整.xlsx"
 
 def fetch_url_content(url):
     try:
@@ -39,7 +46,6 @@ def fetch_data_for_date(date):
     return None
 
 def crawl_live_data(date_list):
-    """ 在 Streamlit 背景執行即時爬取 """
     all_rows = []
     for d_str in date_list:
         data = fetch_data_for_date(d_str)
@@ -67,19 +73,65 @@ def crawl_live_data(date_list):
                 all_rows.append(base + found_flags + [sum(found_flags)])
     return all_rows
 
-# 🌟 每 8 小時 (28800秒) 自動過期，過期後只要有人進網頁，就會自動觸發背景爬蟲更新
-@st.cache_data(ttl=2)
+def push_excel_to_github(df_total, target_stats_cols):
+    """💡 ✨ 核心大絕招：利用 GitHub API 將更新後的多分頁 Excel 檔案強制推回倉庫"""
+    if "GITHUB_TOKEN" not in st.secrets:
+        print("⚠️ 未偵測到 Streamlit Secrets 中的 GITHUB_TOKEN，取消回寫 GitHub。")
+        return
+
+    token = st.secrets["GITHUB_TOKEN"]
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    try:
+        # 1. 獲取原檔案的 sha 雜湊值（這是 GitHub API 覆蓋檔案必須的通行證）
+        res = requests.get(url, headers=headers)
+        sha = res.json().get("sha", "") if res.status_code == 200 else ""
+
+        # 2. 在記憶體中建立二進位 Excel 數據流
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_total.to_excel(writer, sheet_name='全部彙整', index=False)
+            for region_name, cities in REGIONS.items():
+                region_df = df_total[df_total['區域'] == region_name].copy()
+                if not region_df.empty:
+                    for col in target_stats_cols:
+                        if col in region_df.columns:
+                            region_df[col] = region_df[col].astype(int)
+                    region_df.to_excel(writer, sheet_name=region_name, index=False)
+        
+        excel_binary = output.getvalue()
+        # 3. 將二進位數據編碼為 Base64 字串
+        base64_content = base64.b64encode(excel_binary).decode("utf-8")
+
+        # 4. 發送 PUT 請求無痛覆蓋雲端檔案
+        payload = {
+            "message": f"🤖 Streamlit 背景自動同步決標 Excel: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "content": base64_content,
+            "branch": "main"
+        }
+        if sha: 
+            payload["sha"] = sha
+
+        put_res = requests.put(url, headers=headers, json=payload)
+        if put_res.status_code in [200, 201]:
+            print("🎉 恭喜！最新 Excel 實體檔案已成功同步推回 GitHub 倉庫！")
+        else:
+            print(f"⚠️ GitHub API 寫入失敗: {put_res.text}")
+    except Exception as e:
+        print(f"⚠️ 同步至 GitHub 時發生異常: {e}")
+
+@st.cache_data(ttl=28800)
 def get_integrated_data():
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
+    target_stats_cols = KEYWORDS + ['關鍵字總計']
     
-    # 1. 讀取你原本在 GitHub 上的歷史 Excel 檔案 (作為基礎底包)
     history_excel = "data/採購網_決標彙整.xlsx"
     if os.path.exists(history_excel):
         df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
     else:
         df_total = pd.DataFrame(columns=columns)
         
-    # 2. 自動計算中斷的日期（從歷史最後一天，一路算到台灣時間的今天）
     tw_tz = timezone(timedelta(hours=8))
     today_dt = datetime.now(tw_tz)
     
@@ -90,7 +142,7 @@ def get_integrated_data():
         
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    # 3. 如果發現有日期中斷，Streamlit 自動在背景把這幾天補齊
+    has_new_data = False
     if start_dt <= today_dt.replace(tzinfo=None):
         date_list = []
         curr = start_dt
@@ -104,8 +156,8 @@ def get_integrated_data():
             df_total = pd.concat([df_total, df_new], ignore_index=True)
             df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
             df_total.sort_values(by='日期', ascending=False, inplace=True)
+            has_new_data = True # 💡 標記今天確實有撈到全新案子
             
-    # 💡 強制對「預算」欄位進行終極清洗與數字轉型，防止 sum() 時因字串或 None 噴出 TypeError
     if '預算' in df_total.columns:
         df_total['預算'] = df_total['預算'].astype(str) \
                                           .str.replace('$', '', regex=False) \
@@ -114,10 +166,13 @@ def get_integrated_data():
                                           .str.strip()
         df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
 
-    # 4. 強制轉整數清洗統計欄位
-    for col in (KEYWORDS + ['關鍵字總計']):
+    for col in target_stats_cols:
         if col in df_total.columns:
             df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+            
+    # 💡 ✨ 只要有新案子，立即觸發 API 自動回寫 GitHub 倉庫，完成閉環！
+    if has_new_data:
+        push_excel_to_github(df_total, target_stats_cols)
             
     return df_total
 
