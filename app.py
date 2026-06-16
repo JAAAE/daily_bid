@@ -83,7 +83,7 @@ if df is not None:
     col1, col2, col3 = st.columns(3)
     col1.metric("當前篩選標案量", f"{total_tenders} 件", help="符合目前篩選條件的標案總數量")
     col2.metric("總決標預算規模", f"{total_budget_wan:,.0f} 萬元", help="當前篩選標案的預算加總")
-    col3.metric("資料更新至 (昨日)", formatted_date)
+    col3.metric("資料更新至 (當天)", formatted_date) # 👈 指標更新文字提示同步修改為當天
 
     st.markdown("---")
 
@@ -117,11 +117,11 @@ if df is not None:
     # --- 📋 詳細資料表格與分頁邏輯 ---
     st.subheader("📋 標案明細清單")
     
-    # 📌 ✨ 調整欄位順序：把「成果連結」直接插在「標案名稱」的正後面！
+    # 📌 完美對齊動線：基本前端欄位把「成果連結」緊跟在「標案名稱」後面
     base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算']
     base_back = ['關鍵字總計']
     
-    # 最終完整拼接順序：基本前端欄位(含連結) -> 14個關鍵字各自獨立欄位 -> 關鍵字總計
+    # 14 個關鍵字加上總計全部獨立完整並排展開
     display_cols = base_front + keyword_cols + base_back
     available_display_cols = [c for c in display_cols if c in filtered_df.columns]
     
@@ -151,6 +151,7 @@ if df is not None:
         "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
         "關鍵字總計": st.column_config.NumberColumn("關鍵字總計", format="%d")
     }
+    # 📌 14個欄位強制鎖定格式為 %d（純整數 0 與 1）
     for kw in keyword_cols:
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
@@ -162,7 +163,7 @@ if df is not None:
         hide_index=True
     )
 
-    # --- 分頁按紐控制列 ---
+    # --- 💡 分頁按鈕控制列（上一頁、下一頁） ---
     st.write("") 
     page_col1, page_col2, page_col3, page_col4 = st.columns([1, 1, 2, 6])
     
