@@ -1,51 +1,66 @@
-name: Daily Procurement Trigger
+name: Daily Procurement Crawler
 
 on:
   schedule:
-    # 每天台灣時間下午 17:05 定時執行 (UTC 9:05)
-    - cron: '5 9 * * *'
-  workflow_dispatch: # 允許手動點擊執行
+    # 每天台灣時間下午 17:00 自動執行 (UTC 9:00)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # 允許手動點擊按鈕執行
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
-  trigger_streamlit:
+  crawl_and_update:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: true
+        fetch-depth: 0 # 讀取完整歷史紀錄
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: Install Requests
-      run: pip install requests
-
-    - name: Wake up Streamlit with Python Session (🌟 密碼學級特徵穿透)
+    - name: Install dependencies
       run: |
-        python -c '
-        import requests
-        import sys
+        python -m pip install --upgrade pip
+        pip install pandas openpyxl requests urllib3
 
-        url = "https://dailybid.streamlit.app/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Cache-Control": "max-age=0"
-        }
+    - name: Run Crawler
+      env:
+        PYTHONUNBUFFERED: '1' # 💡 強制 Python 拋棄緩衝區，讓 GitHub Actions 即時噴出 Done 日誌！
+      run: python crawler.py
 
-        try:
-            # 💡 使用 Session 可以建立保持連線的握手特徵，完美繞過防火牆對 curl 的硬阻擋
-            session = requests.Session()
-            response = session.get(url, headers=headers, timeout=15)
-            print(f"狀態碼: {response.status_code}")
-            if response.status_code >= 400:
-                print(f"❌ 網頁回應異常，狀態碼: {response.status_code}")
-                sys.exit(0) # 💡 強制讓 workflow 顯示綠燈，不讓 Cloudflare 的小阻擋打斷自動化
-            else:
-                print("🚀 成功穿透防禦！Streamlit 雲端背景爬蟲已啟動！")
-        except Exception as e:
-            print(f"喚醒時發生非預期錯誤: {e}")
-            sys.exit(0)
-        '
+    - name: Commit and Push changes (🌟 終極無腦覆蓋流)
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # 1. 精準複製真正產出的 Excel 檔案到系統暫存區 (/tmp)
+        if [ -f "data/採購網_決標彙整.xlsx" ]; then
+          cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
+        else
+          echo "❌ 找不到爬蟲產出的 Excel 檔案！"
+          exit 1
+        fi
+        
+        # 2. 🔥 物理超渡衝突：直接強制抹除虛擬機裡所有的打架狀態，物理回歸雲端 main 的最純淨表面
+        git reset --hard origin/main
+        git pull origin main
+        
+        # 3. ⚡ 把真正剛爬好的最新 Excel 強行貼回來，冷酷壓過去覆蓋！
+        cp /tmp/latest_excel.xlsx data/採購網_決標彙整.xlsx
+        
+        # 4. 重新追蹤並推網，這在 Git 的眼裡只是單純的檔案內容修改，百分之百不會觸發 Conflict！
+        git add data/採購網_決標彙整.xlsx
+        if [ -n "$(git status --porcelain)" ]; then
+          git commit -m "🤖 自動定時更新決標 Excel: $(date +'%Y-%m-%d %H:%M:%S')"
+          git push origin main
+        else
+          echo "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
+        fi
