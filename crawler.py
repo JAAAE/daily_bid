@@ -38,7 +38,7 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.1, 0.2))
-        response = session.get(url, timeout=3)
+        response = session.get(url, timeout=5) # 💡 微調至 5 秒，給不穩定的政府 API 多點時間
         if response.status_code == 200:
             return response.json()
     except Exception:
@@ -48,7 +48,7 @@ def fetch_url_content(url):
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=3)
+        response = session.get(url, timeout=5) # 💡 同步微調至 5 秒
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -74,8 +74,8 @@ def process_data_for_date(date_str):
 
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
-        agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
+        # 💡 ✨ 關鍵修正：確保成功拿到詳細內容後，才把資料寫入清單
         if content and 'records' in content and content['records']:
             detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
@@ -97,8 +97,9 @@ def process_data_for_date(date_str):
             else:
                 price = raw_price
 
-        base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-        processed_rows.append(base_data + found_flags + [row_sum])
+            # 💡 移入 if 內部：只有抓取成功的行才准記錄！
+            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
+            processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
@@ -124,7 +125,7 @@ def main():
         except Exception as e:
             print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
 
-    # 💡 配合下午五點排程：將爬取終點設定為「今天（當天）」
+    # 配合下午五點排程：將爬取終點設定為「今天（當天）」
     today_dt = datetime.now()
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
@@ -136,7 +137,7 @@ def main():
     print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
-    while curr <= today_dt:  # 👈 一路抓到今天為止
+    while curr <= today_dt:
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
