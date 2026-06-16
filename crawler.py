@@ -38,7 +38,7 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.05, 0.1))
-        response = session.get(url, timeout=20)
+        response = session.get(url, timeout=5)
         if response.status_code == 200:
             return response.json()
     except Exception:
