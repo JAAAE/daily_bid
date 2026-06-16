@@ -2,7 +2,8 @@ name: Daily Procurement Crawler
 
 on:
   schedule:
-    - cron: '0 9 * * *' # 每天台灣時間下午 17:00 執行
+    # 每天 台灣時間下午 17:00 執行
+    - cron: '0 9 * * *'
   workflow_dispatch: # 允許手動點擊按鈕執行
 
 permissions:
@@ -18,13 +19,12 @@ jobs:
       uses: actions/checkout@v4
       with:
         persist-credentials: true
-        fetch-depth: 0 # 讀取完整歷史紀錄
+        fetch-depth: 0 # 讀取完整歷史
 
-    - name: Set up Python (🌟 徹底拔除 Cache 污染)
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        # 💡 這裡絕對不要寫 cache: 'pip'，確保每次都是百分之百純淨的全新環境
 
     - name: Install dependencies
       run: |
@@ -34,28 +34,25 @@ jobs:
     - name: Run Crawler
       run: python crawler.py
 
-    - name: Commit and Push changes (🌟 乾淨無腦覆蓋流)
+    - name: Commit and Push changes (🌟 終極無痛防禦流)
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 1. 確保拿到最新的 Excel 實體
-        if [ -f "data/採購網_決標彙整.xlsx" ]; then
-          cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
-        else
-          echo "❌ 找不到爬蟲產出的 Excel 檔案！"
-          exit 1
-        fi
+        # 1. 先把虛擬機剛剛辛辛苦苦爬好、最新最完整的 Excel 備份到系統記憶體
+        cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
         
-        # 2. 強制洗掉虛擬機裡所有的幽靈暫存狀態，物理回歸 GitHub 最真實的分支
+        # 2. 冷酷放棄虛擬機內的所有衝突狀態，強制物理回歸雲端 main 的最新狀態
         git reset --hard origin/main
         git pull origin main
         
-        # 3. 把真正現爬好、最完整的 Excel 強行貼回來覆蓋
+        # 3. 把真正現爬好的最新 Excel 強行貼回來覆蓋
         cp /tmp/latest_excel.xlsx data/採購網_決標彙整.xlsx
         
-        # 4. 強制推網
+        # 4. 重新強制追蹤
         git add data/採購網_決標彙整.xlsx
+        
+        # 5. 順推網頁，永不打架
         if [ -n "$(git status --porcelain)" ]; then
           git commit -m "🤖 自動更新決標資料: $(date +'%Y-%m-%d %H:%M:%S')"
           git push origin main
