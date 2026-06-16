@@ -117,37 +117,34 @@ if df is not None:
     # --- 📋 詳細資料表格與分頁邏輯 ---
     st.subheader("📋 標案明細清單")
     
-    # 📌 欄位完整展開設定
-    base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '預算']
-    base_back = ['成果連結', '關鍵字總計']
+    # 📌 ✨ 調整欄位順序：把「成果連結」直接插在「標案名稱」的正後面！
+    base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算']
+    base_back = ['關鍵字總計']
+    
+    # 最終完整拼接順序：基本前端欄位(含連結) -> 14個關鍵字各自獨立欄位 -> 關鍵字總計
     display_cols = base_front + keyword_cols + base_back
     available_display_cols = [c for c in display_cols if c in filtered_df.columns]
     
-    # --- 💡 核心自訂分頁邏輯 ---
-    items_per_page = 20  # 👈 每頁顯示的標案筆數，你可以自己改成 10, 50 或 100
+    # --- 自訂分頁邏輯 ---
+    items_per_page = 20  
     
-    # 計算總頁數 (用總筆數除以每頁筆數，無條件進位)
     if total_tenders > 0:
         max_page = ((total_tenders - 1) // items_per_page) + 1
     else:
         max_page = 1
 
-    # 初始化或檢查目前留在第幾頁 (Session State 機制確保換頁時畫面不會亂掉)
     if 'current_page' not in st.session_state:
         st.session_state.current_page = 1
         
-    # 如果使用者切換左側篩選條件導致總頁數縮水，要把目前頁數強制拉回第 1 頁，避免 index 溢出
     if st.session_state.current_page > max_page:
         st.session_state.current_page = 1
 
-    # 計算當前頁面要切片（Slice）的資料範圍
     start_idx = (st.session_state.current_page - 1) * items_per_page
     end_idx = start_idx + items_per_page
     
-    # 切出當前頁面的資料
     page_df = filtered_df.iloc[start_idx:end_idx]
 
-    # 設定表格內各欄位的顯示格式 (%d 強制轉整數)
+    # 設定表格欄位樣式
     custom_configs = {
         "日期": st.column_config.TextColumn("決標日期"),
         "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
@@ -157,7 +154,7 @@ if df is not None:
     for kw in keyword_cols:
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
-    # 渲染目前頁面的數據大寬表
+    # 渲染網頁表格
     st.dataframe(
         page_df[available_display_cols],
         column_config=custom_configs,
@@ -165,26 +162,23 @@ if df is not None:
         hide_index=True
     )
 
-    # --- 💡 分頁按紐控制列 ---
-    st.write("") # 留空行
+    # --- 分頁按紐控制列 ---
+    st.write("") 
     page_col1, page_col2, page_col3, page_col4 = st.columns([1, 1, 2, 6])
     
-    # 按鈕 1：上一頁
     with page_col1:
         if st.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1), use_container_width=True):
             st.session_state.current_page -= 1
-            st.rerun()  # 強制重繪網頁
+            st.rerun()  
             
-    # 按鈕 2：下一頁
     with page_col2:
         if st.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page), use_container_width=True):
             st.session_state.current_page += 1
-            st.rerun()  # 強制重繪網頁
+            st.rerun()  
             
-    # 文字提示：顯示目前頁碼進度
     with page_col3:
         st.markdown(
-            f"<div style='padding-top: 5px; font-weight: bold; color: #1E88E5;'>"
+            f"<div style='padding-top: 5px; font-weight: bold; color: #1E88E5;'> "
             f"第 {st.session_state.current_page} / {max_page} 頁 (本頁顯示 {start_idx+1} ~ {min(end_idx, total_tenders)} 筆 / 共 {total_tenders} 筆)"
             f"</div>", 
             unsafe_allow_html=True
