@@ -31,32 +31,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas openpyxl requests urllib3
 
-    - name: Run Crawler
-      env:
-        PYTHONUNBUFFERED: '1' # 💡 強制 Python 拋棄緩衝區，讓 GitHub Actions 即時噴出 Done 日誌！
-      run: python crawler.py
-
-    - name: Commit and Push changes (🌟 終極無腦覆蓋流)
+    - name: Sync Git Environment (🌟 先把雲端時空對齊，防止新資料被抹除)
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        
-        # 1. 精準複製真正產出的 Excel 檔案到系統暫存區 (/tmp)
-        if [ -f "data/採購網_決標彙整.xlsx" ]; then
-          cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
-        else
-          echo "❌ 找不到爬蟲產出的 Excel 檔案！"
-          exit 1
-        fi
-        
-        # 2. 🔥 物理超渡衝突：直接強制抹除虛擬機裡所有的打架狀態，物理回歸雲端 main 的最純淨表面
         git reset --hard origin/main
         git pull origin main
-        
-        # 3. ⚡ 把真正剛爬好的最新 Excel 強行貼回來，冷酷壓過去覆蓋！
-        cp /tmp/latest_excel.xlsx data/採購網_決標彙整.xlsx
-        
-        # 4. 重新追蹤並推網，這在 Git 的眼裡只是單純的檔案內容修改，百分之百不會觸發 Conflict！
+
+    - name: Run Crawler (🌟 在最乾淨的時空下原地長出最新 Excel)
+      env:
+        PYTHONUNBUFFERED: '1' # 讓日誌即時噴出
+      run: python crawler.py
+
+    - name: Commit and Push changes (🌟 真實新檔案順暢推網)
+      run: |
         git add data/採購網_決標彙整.xlsx
         if [ -n "$(git status --porcelain)" ]; then
           git commit -m "🤖 自動定時更新決標 Excel: $(date +'%Y-%m-%d %H:%M:%S')"
