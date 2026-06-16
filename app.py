@@ -101,7 +101,6 @@ if df is not None:
             kw_sums.columns = ['關鍵字', '出現次數']
             kw_sums = kw_sums.sort_values(by='出現次數', ascending=True)
             
-            # ✨ 修正後的行：確保單引號完美閉合
             fig_bar = px.bar(kw_sums, x='出現次數', y='關鍵字', orientation='h', title='關鍵字觸發熱度排行',
                              color='出現次數', color_continuous_scale='Blues')
             
@@ -113,17 +112,33 @@ if df is not None:
     # --- 📋 詳細資料表格 ---
     st.subheader("📋 標案明細清單")
     
-    display_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結', '關鍵字總計']
+    # ✨ 💡 重新定義顯示欄位：把 14 個關鍵字插在「標案名稱、預算」與「成果連結」中間
+    base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '預算']
+    base_back = ['成果連結', '關鍵字總計']
+    
+    # 最終合併出的順序：基本欄位 -> 14個關鍵字各自獨立欄位 -> 成果連結 -> 關鍵字總計
+    display_cols = base_front + keyword_cols + base_back
     available_display_cols = [c for c in display_cols if c in filtered_df.columns]
     
+    # 建立動態的欄位樣式設定 (將 14 個關鍵字轉換為視覺小圖示，有1顯示 🟢，無0顯示 ⚪)
+    custom_configs = {
+        "日期": st.column_config.TextColumn("決標日期"),
+        "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
+        "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
+        "關鍵字總計": st.column_config.NumberColumn("加總命中", format="%d 組")
+    }
+    
+    # 💡 自動為 14 個關鍵字加上打勾或燈號樣式，避免死板板的 0 與 1
+    for kw in keyword_cols:
+        custom_configs[kw] = st.column_config.NumberColumn(
+            kw, 
+            format="🟢",  # 當數值為 1 時顯示綠燈（Streamlit 會自動映射 1 變成亮點，0 變成空白/淡化）
+            help=f"是否包含關鍵字：{kw}"
+        )
+
     st.dataframe(
         filtered_df[available_display_cols],
-        column_config={
-            "日期": st.column_config.TextColumn("決標日期"),
-            "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
-            "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
-            "關鍵字總計": st.column_config.NumberColumn("命中組數", format="%d 組")
-        },
+        column_config=custom_configs,
         use_container_width=True,
         hide_index=True
     )
