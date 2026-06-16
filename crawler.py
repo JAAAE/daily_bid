@@ -1,7 +1,7 @@
 import os
 import time
 import random
-from datetime import datetime, timedelta, timezone # 💡 導入 timezone
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
@@ -109,28 +109,30 @@ def main():
     start_date_str = "20260515"
     df_old = pd.DataFrame(columns=columns)
     
-    # 自動偵測歷史 Excel 進度
+    # 💡 ✨ 關鍵修正 1：讀取舊檔時，強制指定「日期」欄位必須是字串，防止被 Pandas 自動轉成浮點數
     if os.path.exists(excel_path):
         print("偵測到現有歷史 Excel，讀取進度中...")
         try:
-            df_old = pd.read_excel(excel_path, sheet_name='全部彙整')
+            df_old = pd.read_excel(excel_path, sheet_name='全部彙整', dtype={'日期': str})
             df_old = df_old.reindex(columns=columns)
             if not df_old.empty:
-                max_date_str = str(df_old['日期'].max()).strip()
-                max_date = datetime.strptime(max_date_str, '%Y%m%d')
-                start_date_str = (max_date + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"📈 歷史檔案最後更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
+                # 清洗可能存在的點零或雜質
+                df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
+                max_date_str = df_old['日期'].max()
+                max_dt = datetime.strptime(max_date_str, '%Y%m%d')
+                start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
+                print(f"📈 歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
         except Exception as e:
-            print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
+            print(f"⚠️ 歷史資料解析失敗，將採用預設設定。錯誤原因: {e}")
 
-    # 💡 ✨ 關鍵修正：強制設定為台灣時區 (UTC+8)
+    # 強制設定為台灣時區 (UTC+8)
     tw_tz = timezone(timedelta(hours=8))
-    today_dt = datetime.now(tw_tz) # 👈 讓 now() 永遠採用台灣時間
+    today_dt = datetime.now(tw_tz)
     
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    # 如果把台灣時區拿來判定，起點大於今天才算最新
+    # 💡 ✨ 關鍵修正 2：統一移除時區標籤進行安全比較
     if start_dt > today_dt.replace(tzinfo=None):
         print("✨ 資料庫已是最新狀態，無需填補！")
         return
@@ -138,7 +140,7 @@ def main():
     print(f"🚀 開始準備填補中斷日期（台灣時間）：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
-    while curr <= today_dt.replace(tzinfo=None): # 👈 統一去除時區標籤以便與 datetime 物件做安全比較
+    while curr <= today_dt.replace(tzinfo=None):
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
@@ -157,12 +159,21 @@ def main():
         if col in df_new.columns:
             df_new[col] = pd.to_numeric(df_new[col], errors='coerce').fillna(0).astype('Int64')
 
+    # 💡 ✨ 關鍵修正 3：確保合併前新舊資料的「日期」欄位型態百分之百絕對一致 (全文字)
+    if not df_old.empty:
+        df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
+    if not df_new.empty:
+        df_new['日期'] = df_new['日期'].astype(str).str.strip()
+
     # 合併歷史與全新數據
     df_total = pd.concat([df_old, df_new], ignore_index=True)
-    df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-    df_total['日期'] = df_total['日期'].astype(str).str.strip()
     
-    # 終極清洗：將所有關鍵字與總計欄位強制鎖定為純整數，排除浮點數小數點
+    # 統一去除前後空白再進行全域去重
+    df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
+    df_total['成果連結'] = df_total['成果連結'].astype(str).str.strip()
+    df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
+    
+    # 終極清洗：將所有關鍵字與總計欄位強制鎖定為純整數
     for col in target_stats_cols:
         if col in df_total.columns:
             df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
