@@ -61,19 +61,14 @@ def process_data_for_date(date_str):
         return []
 
     processed_rows = []
-    award_records = [
-        r for r in data['records'] 
-        if r.get('brief', {}).get('type') == "決標公告"
-    ]
+    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
 
     for record in award_records:
         brief = record.get('brief', {})
         tender_name = brief.get('title', '')
         
-        # --- 💡 關鍵字 0/1 統計（確保原始產出即為 int） ---
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
-        
         if row_sum == 0:
             continue
 
@@ -86,10 +81,22 @@ def process_data_for_date(date_str):
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            price = detail.get('採購資料:預算金額', '')
             place = detail.get('機關資料:機關地址', '')
             place_substring = place[4:7] if place else ""
             region = CITY_TO_REGION.get(place_substring, "其他")
+
+            # 💡 核心修正：採購網有多種預算金額欄位名稱，使用多重備用機制抓取
+            raw_price = detail.get('採購資料:預算金額') or \
+                        detail.get('採購資料:採購金額') or \
+                        detail.get('採購資料:總預算金額') or \
+                        detail.get('招標資料:預算金額') or \
+                        detail.get('採購資料:預估金額') or ""
+            
+            # 清洗爬到的金額字串中的雜質
+            if isinstance(raw_price, str):
+                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
+            else:
+                price = raw_price
 
         base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
         processed_rows.append(base_data + found_flags + [row_sum])
@@ -101,11 +108,10 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
-    # 預設起點：若完全沒有歷史 Excel 檔，就從 2026-05-15 開始爬
     start_date_str = "20260515"
     df_old = pd.DataFrame(columns=columns)
     
-    # --- 🔍 智能偵測歷史進度 ---
+    # 自動偵測歷史 Excel 進度
     if os.path.exists(excel_path):
         print("偵測到現有歷史 Excel，讀取進度中...")
         try:
@@ -119,7 +125,6 @@ def main():
         except Exception as e:
             print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
 
-    # 追趕終點：昨天
     yesterday_dt = datetime.now() - timedelta(days=1)
     end_date_str = yesterday_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
@@ -128,7 +133,6 @@ def main():
         print("✨ 資料庫已是最新狀態，無需填補！")
         return
 
-    # --- ⏳ 建立待抓取的日期清單 ---
     print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
@@ -136,9 +140,8 @@ def main():
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
-    # --- ⚡ 恢復並利用多執行緒平行爬取 ---
+    # 平行加速抓取
     all_new_rows = []
-    # 可以依據網路狀況微調 max_workers（建議 2-4，避免 PCC API 觸發 rate limit）
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(process_data_for_date, date_list))
         for res in results:
@@ -146,7 +149,7 @@ def main():
         
     df_new = pd.DataFrame(all_new_rows, columns=columns)
     
-    # 合併前預清洗新資料型態
+    # 合併前預清洗
     target_stats_cols = KEYWORDS + ['關鍵字總計']
     for col in target_stats_cols:
         if col in df_new.columns:
@@ -154,31 +157,14 @@ def main():
 
     # 合併歷史與全新數據
     df_total = pd.concat([df_old, df_new], ignore_index=True)
-
-    # 全域去重
     df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
     df_total['日期'] = df_total['日期'].astype(str).str.strip()
     
-    # --- 💡 核心型態鎖定：寫入 Excel 前強制轉換回標準整數型態（徹底消滅小數點） ---
+    # 💡 終極清洗：將所有關鍵字與總計欄位強制鎖定為純整數，排除浮點數小數點
     for col in target_stats_cols:
         if col in df_total.columns:
             df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
             
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
-    # --- 💾 重新寫入 Excel 各區域分頁 ---
-    with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-        df_total.to_excel(writer, sheet_name='全部彙整', index=False)
-        for region_name in REGIONS.keys():
-            region_df = df_total[df_total['區域'] == region_name].copy()
-            if not region_df.empty:
-                # 確保分頁資料也維持純整數
-                for col in target_stats_cols:
-                    if col in region_df.columns:
-                        region_df[col] = region_df[col].astype(int)
-                region_df.to_excel(writer, sheet_name=region_name, index=False)
-                
-    print(f"🎉 成功！Excel 資料已利用平行執行緒填補完畢，且統計欄位皆維持純整數格式：{excel_path}")
-
-if __name__ == "__main__":
-    main()
+    # 重新寫入 Excel 各
