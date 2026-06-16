@@ -32,14 +32,16 @@ jobs:
         pip install pandas openpyxl requests urllib3
 
     - name: Run Crawler
+      env:
+        PYTHONUNBUFFERED: '1' # 💡 強制 Python 拋棄緩衝區，讓 GitHub Actions 即時噴出 Done 日誌！
       run: python crawler.py
 
-    - name: Commit and Push changes (🌟 終極無腦覆蓋流，永不打架)
+    - name: Commit and Push changes (🌟 終極無腦覆蓋流)
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 1. 把剛剛爬蟲跑完、裝滿新資料的最新 Excel 先備份到系統暫存區 (/tmp)
+        # 1. 精準複製真正產出的 Excel 檔案到系統暫存區 (/tmp)
         if [ -f "data/採購網_決標彙整.xlsx" ]; then
           cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
         else
