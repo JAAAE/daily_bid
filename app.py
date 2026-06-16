@@ -21,7 +21,7 @@ def load_data():
             # 2. 清洗與格式化日期
             df['日期'] = df['日期'].astype(str).str.strip()
             
-            # 3. 💡 強力清洗金額欄位，防止舊資料包含國字、全形或金錢符號導致 pd.to_numeric 失敗變 0
+            # 3. 強力清洗金額欄位，防止轉型失敗變 0
             if '預算' in df.columns:
                 df['預算'] = df['預算'].astype(str).str.replace('$', '', regex=False) \
                                                     .str.replace(',', '', regex=False) \
@@ -114,38 +114,81 @@ if df is not None:
         else:
             st.info("無關鍵字數據可供繪圖")
 
-    # --- 📋 詳細資料表格 ---
+    # --- 📋 詳細資料表格與分頁邏輯 ---
     st.subheader("📋 標案明細清單")
     
-    # 📌 全部欄位完全展開，不進行任何刪減或精簡
+    # 📌 欄位完整展開設定
     base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '預算']
     base_back = ['成果連結', '關鍵字總計']
-    
     display_cols = base_front + keyword_cols + base_back
     available_display_cols = [c for c in display_cols if c in filtered_df.columns]
     
-    # 建立格式化映射
+    # --- 💡 核心自訂分頁邏輯 ---
+    items_per_page = 20  # 👈 每頁顯示的標案筆數，你可以自己改成 10, 50 或 100
+    
+    # 計算總頁數 (用總筆數除以每頁筆數，無條件進位)
+    if total_tenders > 0:
+        max_page = ((total_tenders - 1) // items_per_page) + 1
+    else:
+        max_page = 1
+
+    # 初始化或檢查目前留在第幾頁 (Session State 機制確保換頁時畫面不會亂掉)
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 1
+        
+    # 如果使用者切換左側篩選條件導致總頁數縮水，要把目前頁數強制拉回第 1 頁，避免 index 溢出
+    if st.session_state.current_page > max_page:
+        st.session_state.current_page = 1
+
+    # 計算當前頁面要切片（Slice）的資料範圍
+    start_idx = (st.session_state.current_page - 1) * items_per_page
+    end_idx = start_idx + items_per_page
+    
+    # 切出當前頁面的資料
+    page_df = filtered_df.iloc[start_idx:end_idx]
+
+    # 設定表格內各欄位的顯示格式 (%d 強制轉整數)
     custom_configs = {
         "日期": st.column_config.TextColumn("決標日期"),
         "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
         "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
         "關鍵字總計": st.column_config.NumberColumn("關鍵字總計", format="%d")
     }
-    
-    # 📌 將 14 個獨立欄位全部格式化為 %d（整數型態），畫面上會是純淨的 0 與 1
     for kw in keyword_cols:
-        custom_configs[kw] = st.column_config.NumberColumn(
-            kw, 
-            format="%d", 
-            help=f"點擊排序檢視包含【{kw}】的標案"
-        )
+        custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
-    # 渲染原始大寬表
+    # 渲染目前頁面的數據大寬表
     st.dataframe(
-        filtered_df[available_display_cols],
+        page_df[available_display_cols],
         column_config=custom_configs,
         use_container_width=True,
         hide_index=True
     )
+
+    # --- 💡 分頁按紐控制列 ---
+    st.write("") # 留空行
+    page_col1, page_col2, page_col3, page_col4 = st.columns([1, 1, 2, 6])
+    
+    # 按鈕 1：上一頁
+    with page_col1:
+        if st.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1), use_container_width=True):
+            st.session_state.current_page -= 1
+            st.rerun()  # 強制重繪網頁
+            
+    # 按鈕 2：下一頁
+    with page_col2:
+        if st.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page), use_container_width=True):
+            st.session_state.current_page += 1
+            st.rerun()  # 強制重繪網頁
+            
+    # 文字提示：顯示目前頁碼進度
+    with page_col3:
+        st.markdown(
+            f"<div style='padding-top: 5px; font-weight: bold; color: #1E88E5;'>"
+            f"第 {st.session_state.current_page} / {max_page} 頁 (本頁顯示 {start_idx+1} ~ {min(end_idx, total_tenders)} 筆 / 共 {total_tenders} 筆)"
+            f"</div>", 
+            unsafe_allow_html=True
+        )
+
 else:
     st.warning("⚠️ 找不到 `data/採購網_決標彙整.xlsx` 檔案，請確認爬蟲已成功執行並將檔案推上 GitHub。")
