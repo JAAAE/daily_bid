@@ -2,7 +2,6 @@ import os
 import time
 import random
 from datetime import datetime, timedelta, timezone
-from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -25,7 +24,7 @@ city_to_region = {city: region for region, cities in regions.items() for city in
 def get_session():
     session = requests.Session()
     retry_strategy = Retry(
-        total=5, backoff_factor=2,
+        total=5, backoff_factor=3, # 💡 放慢重試退後因子
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"]
     )
@@ -38,23 +37,23 @@ session = get_session()
 
 def fetch_url_content(url):
     try:
-        time.sleep(random.uniform(0.1, 0.2))
-        # 💡 ✨ 關鍵修正 1：放寬到 10 秒！徹底解決 GitHub 國外伺服器跨海連線超時全滅的問題
-        response = session.get(url, timeout=10)
+        # 💡 每次抓取標案明細，隨便微睡 0.2~0.5 秒，禮貌爬取
+        time.sleep(random.uniform(0.2, 0.5))
+        response = session.get(url, timeout=15) # 💡 拉長到 15 秒防禦
         if response.status_code == 200:
             return response.json()
     except Exception as e:
-        print(f"⚠️ 明細 API 請求超時或失敗: {url}，錯誤: {e}")
+        print(f"⚠️ 明細 API 失敗: {url}，錯誤: {e}")
     return None
 
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=10) # 💡 同步放寬到 10 秒
+        response = session.get(url, timeout=15)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
-        print(f"❌ 日期 {date} 總表抓取失敗: {e}")
+        print(f"❌ 日期 {date} 總表失敗: {e}")
     return None
 
 def process_data_for_date(date_str):
@@ -78,7 +77,6 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
-        # 💡 ✨ 關鍵修正 2：嚴格縮排！只有當明細「成功下載」時，才允許產生資料行，防止空資料進 Excel
         if content and 'records' in content and content['records']:
             detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
@@ -102,7 +100,7 @@ def process_data_for_date(date_str):
             base_data = [date_str, agency_code, agency_name, place_substring, region_name, tender_name, price, link2]
             processed_rows.append(base_data + found_flags + [row_sum])
     
-    print(f"📅 日期 {date_str} 掃描完畢，命中並成功下載的空間資訊標案有: {len(processed_rows)} 筆")
+    print(f"📅 日期 {date_str} 掃描完畢，成功下載: {len(processed_rows)} 筆")
     return processed_rows
 
 def main():
@@ -141,11 +139,13 @@ def main():
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
+    # 💡 ✨ 關鍵修正：取消 ThreadPool 平行盲爬，改成老實的單執行緒線，並且「日期與日期之間」強制睡覺！
     all_data = []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(process_data_for_date, date_list))
-        for res in results:
-            all_data.extend(res)
+    for d_str in date_list:
+        # 💡 每次爬新的一天前，隨機深呼吸 1 到 3 秒，徹底規避機房 IP 頻率封鎖
+        time.sleep(random.uniform(1.0, 3.0))
+        res = process_data_for_date(d_str)
+        all_data.extend(res)
 
     df_new = pd.DataFrame(all_data, columns=columns)
     
