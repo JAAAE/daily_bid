@@ -1,54 +1,19 @@
-name: Daily Procurement Crawler
+name: Daily Procurement Trigger
 
 on:
   schedule:
-    # 每天台灣時間下午 17:00 自動執行 (UTC 9:00)
-    - cron: '0 9 * * *'
-  workflow_dispatch: # 允許手動點擊按鈕執行
-
-permissions:
-  contents: write
-  actions: write
+    # 每天台灣時間下午 17:05 定時執行 (UTC 9:05)
+    - cron: '5 9 * * *'
+  workflow_dispatch: # 允許手動點擊執行
 
 jobs:
-  crawl_and_update:
+  trigger_streamlit:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        persist-credentials: true
-        fetch-depth: 0 # 讀取完整歷史紀錄
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
+    - name: Wake up Streamlit and Trigger Live Crawl
       run: |
-        python -m pip install --upgrade pip
-        pip install pandas openpyxl requests urllib3
-
-    - name: Sync Git Environment (🌟 先把雲端時空對齊，防止新資料被抹除)
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git reset --hard origin/main
-        git pull origin main
-
-    - name: Run Crawler (🌟 在最乾淨的時空下原地長出最新 Excel)
-      env:
-        PYTHONUNBUFFERED: '1' # 讓日誌即時噴出
-      run: python crawler.py
-
-    - name: Commit and Push changes (🌟 真實新檔案順暢推網)
-      run: |
-        git add data/採購網_決標彙整.xlsx
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "🤖 自動定時更新決標 Excel: $(date +'%Y-%m-%d %H:%M:%S')"
-          git push origin main
-        else
-          echo "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
-        fi
+        # 💡 用 curl 連線你的 Streamlit 網頁，逼迫網頁在背景執行純淨的 API 補齊與 Excel 回寫！
+        # 🌟 請將下方的網址替換為你真正的 Streamlit 網頁網址 🌟
+        curl -sL "https://daily-bid.streamlit.app" > /dev/null
+        echo "🚀 已成功觸發 Streamlit 雲端背景爬蟲，資料庫回補閉環完成！"

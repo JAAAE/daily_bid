@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import requests
 import streamlit as st
+import io
+import base64
 
 st.set_page_config(page_title="政府電子採購網決標觀測站", layout="wide")
 
@@ -18,46 +20,45 @@ REGIONS = {
 }
 CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in cities}
 
+REPO_OWNER = "JAAAE"
+REPO_NAME = "daily_bid"
+FILE_PATH = "data/採購網_決標彙整.xlsx"
+
 def fetch_url_content(url):
     try:
-        time.sleep(random.uniform(0.1, 0.2))
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200: 
-            return response.json()
-    except: 
-        pass
+        time.sleep(random.uniform(0.05, 0.1))
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200: return response.json()
+    except: pass
     return None
 
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200: 
-            return response.json()
-    except: 
-        pass
+        response = requests.get(url, timeout=4)
+        if response.status_code == 200: return response.json()
+    except: pass
     return None
 
 def crawl_live_data(date_list):
-    """ 在 Streamlit 背景執行即時爬取 """
     all_rows = []
     for d_str in date_list:
         data = fetch_data_for_date(d_str)
-        if not data or 'records' not in data: 
-            continue
+        if not data or 'records' not in data or not data['records']: continue
         
         award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
         for record in award_records:
             tender_name = record.get('brief', {}).get('title', '')
             found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
-            if sum(found_flags) == 0: 
-                continue
+            if sum(found_flags) == 0: continue
             
             content = fetch_url_content(record.get('tender_api_url', ''))
-            if content and 'records' in content and content['records']:
-                detail = content['records'][0].get('detail', {})
+            if content and 'records' in content and isinstance(content['records'], list) and len(content['records']) > 0:
+                block = content['records'][0]
+                if not block or 'detail' not in block: continue
+                detail = block.get('detail', {})
                 place = detail.get('機關資料:機關地址', '')
-                place_substring = place[4:7] if place else ""
+                place_substring = place[4:7] if place and len(place) >= 7 else ""
                 
                 raw_price = detail.get('採購資料:預算金額') or detail.get('採購資料:採購金額') or ""
                 price = raw_price.replace(',', '').replace('元', '').strip() if isinstance(raw_price, str) else raw_price
@@ -67,19 +68,46 @@ def crawl_live_data(date_list):
                 all_rows.append(base + found_flags + [sum(found_flags)])
     return all_rows
 
-# 🌟 每 8 小時 (28800秒) 自動過期，過期後只要有人進網頁，就會自動觸發背景爬蟲更新
-@st.cache_data(ttl=2)
+def push_excel_to_github(df_total, target_stats_cols):
+    token = st.secrets.get("GITHUB_TOKEN", None) if "GITHUB_TOKEN" in st.secrets else None
+    if not token: return
+
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    try:
+        res = requests.get(url, headers=headers)
+        sha = res.json().get("sha", "") if res.status_code == 200 else ""
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_total.to_excel(writer, sheet_name='全部彙整', index=False)
+            for region_name in REGIONS.keys():
+                region_df = df_total[df_total['區域'] == region_name].copy()
+                if not region_df.empty:
+                    for col in target_stats_cols:
+                        if col in region_df.columns: region_df[col] = region_df[col].astype(int)
+                    region_df.to_excel(writer, sheet_name=region_name, index=False)
+        
+        base64_content = base64.b64encode(output.getvalue()).decode("utf-8")
+        payload = {
+            "message": f"🤖 Streamlit 雲端自動回補 Excel: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "content": base64_content, "branch": "main"
+        }
+        if sha: payload["sha"] = sha
+        requests.put(url, headers=headers, json=payload)
+    except: pass
+
+@st.cache_data(ttl=3600) # 💡 設定一小時快取
 def get_integrated_data():
-    columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
+    columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
+    target_stats_cols = KEYWORDS + ['關鍵字總計']
     
-    # 1. 讀取你原本在 GitHub 上的歷史 Excel 檔案 (作為基礎底包)
     history_excel = "data/採購網_決標彙整.xlsx"
     if os.path.exists(history_excel):
-        df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
-    else:
-        df_total = pd.DataFrame(columns=columns)
+        try: df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
+        except: df_total = pd.DataFrame(columns=columns)
+    else: df_total = pd.DataFrame(columns=columns)
         
-    # 2. 自動計算中斷的日期（從歷史最後一天，一路算到台灣時間的今天）
     tw_tz = timezone(timedelta(hours=8))
     today_dt = datetime.now(tw_tz)
     
@@ -90,7 +118,6 @@ def get_integrated_data():
         
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    # 3. 如果發現有日期中斷，Streamlit 自動在背景把這幾天補齊
     if start_dt <= today_dt.replace(tzinfo=None):
         date_list = []
         curr = start_dt
@@ -103,25 +130,24 @@ def get_integrated_data():
             df_new = pd.DataFrame(new_rows, columns=columns)
             df_total = pd.concat([df_total, df_new], ignore_index=True)
             df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-            df_total.sort_values(by='日期', ascending=False, inplace=True)
-            
-    # 💡 強制對「預算」欄位進行終極清洗與數字轉型，防止 sum() 時因字串或 None 噴出 TypeError
-    if '預算' in df_total.columns:
-        df_total['預算'] = df_total['預算'].astype(str) \
-                                          .str.replace('$', '', regex=False) \
-                                          .str.replace(',', '', regex=False) \
-                                          .str.replace('元', '', regex=False) \
-                                          .str.strip()
-        df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
-
-    # 4. 強制轉整數清洗統計欄位
-    for col in (KEYWORDS + ['關鍵字總計']):
-        if col in df_total.columns:
-            df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+        
+        df_total.sort_values(by='日期', ascending=False, inplace=True)
+        
+        if '預算' in df_total.columns:
+            df_total['預算'] = df_total['預算'].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('元', '', regex=False).str.strip()
+            df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+        for col in target_stats_cols:
+            if col in df_total.columns: df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+        
+        push_excel_to_github(df_total, target_stats_cols)
+    else:
+        if '預算' in df_total.columns: df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+        for col in target_stats_cols:
+            if col in df_total.columns: df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+        df_total.sort_values(by='日期', ascending=False, inplace=True)
             
     return df_total
 
-# --- 網頁主要渲染佈局 ---
 st.title("🌐 空間資訊與測繪標案 決標觀測站")
 df = get_integrated_data()
 
@@ -131,37 +157,25 @@ if df is not None and not df.empty:
     selected_keyword = st.sidebar.selectbox("主要關鍵字篩選", ["全部"] + KEYWORDS)
 
     filtered_df = df.copy()
-    if selected_region != "全部": 
-        filtered_df = filtered_df[filtered_df['區域'] == selected_region]
-    if selected_keyword != "全部": 
-        filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
+    if selected_region != "全部": filtered_df = filtered_df[filtered_df['區域'] == selected_region]
+    if selected_keyword != "全部": filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
-    # 指標
     st.columns(3)[0].metric("當前篩選標案量", f"{len(filtered_df)} 件")
     st.columns(3)[1].metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
     st.columns(3)[2].metric("最新觀測日期", str(df['日期'].max()))
 
-    # 分頁
     items_per_page = 20
     max_page = ((len(filtered_df) - 1) // items_per_page) + 1 if len(filtered_df) > 0 else 1
-    if 'current_page' not in st.session_state: 
-        st.session_state.current_page = 1
+    if 'current_page' not in st.session_state: st.session_state.current_page = 1
     
     start_idx = (st.session_state.current_page - 1) * items_per_page
     page_df = filtered_df.iloc[start_idx:start_idx + items_per_page]
 
-    # 欄位排布格式化
-    custom_configs = {
-        "日期": st.column_config.TextColumn("決標日期"), 
-        "預算": st.column_config.NumberColumn("預算 (元)", format="$%,d"), 
-        "成果連結": st.column_config.LinkColumn("連結", display_text="檢視")
-    }
-    for kw in KEYWORDS: 
-        custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
+    custom_configs = {"日期": st.column_config.TextColumn("決標日期"), "預算": st.column_config.NumberColumn("預算 (元)", format="$%,d"), "成果連結": st.column_config.LinkColumn("連結", display_text="檢視")}
+    for kw in KEYWORDS: custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
     st.dataframe(page_df[['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']], column_config=custom_configs, use_container_width=True, hide_index=True)
 
-    # 按鈕
     btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 8])
     if btn_col1.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1)):
         st.session_state.current_page -= 1
