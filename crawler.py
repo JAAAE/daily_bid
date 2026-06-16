@@ -2,6 +2,7 @@ import os
 import time
 import random
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -44,30 +45,35 @@ def fetch_url_content(url):
         pass
     return None
 
-def process_data_for_date(date_str):
-    url = f"https://pcc-api.openfun.app/api/listbydate?date={date_str}"
+def fetch_data_for_date(date):
+    url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
         response = session.get(url, timeout=3)
-        if response.status_code != 200:
-            return []
-        data = response.json()
+        if response.status_code == 200:
+            return response.json()
     except Exception as e:
-        print(f"日期 {date_str} 抓取失敗: {e}")
-        return []
+        print(f"日期 {date} 抓取失敗: {e}")
+    return None
 
+def process_data_for_date(date_str):
+    data = fetch_data_for_date(date_str)
     if not data or 'records' not in data:
         return []
 
     processed_rows = []
-    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
+    award_records = [
+        r for r in data['records'] 
+        if r.get('brief', {}).get('type') == "決標公告"
+    ]
 
     for record in award_records:
         brief = record.get('brief', {})
         tender_name = brief.get('title', '')
         
-        # --- 💡 關鍵字 0/1 統計邏輯 ---
+        # --- 💡 關鍵字 0/1 統計（確保原始產出即為 int） ---
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
+        
         if row_sum == 0:
             continue
 
@@ -95,10 +101,11 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
+    # 預設起點：若完全沒有歷史 Excel 檔，就從 2026-05-15 開始爬
     start_date_str = "20260515"
     df_old = pd.DataFrame(columns=columns)
     
-    # 1. 自動偵測歷史 Excel 進度
+    # --- 🔍 智能偵測歷史進度 ---
     if os.path.exists(excel_path):
         print("偵測到現有歷史 Excel，讀取進度中...")
         try:
@@ -108,11 +115,11 @@ def main():
                 max_date_str = str(df_old['日期'].max()).strip()
                 max_date = datetime.strptime(max_date_str, '%Y%m%d')
                 start_date_str = (max_date + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"📈 歷史檔案最後更新到: {max_date_str}，將從隔日 {start_date_str} 開始自動追趕進度！")
+                print(f"📈 歷史檔案最後更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
         except Exception as e:
             print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
 
-    # 爬取終點：昨天
+    # 追趕終點：昨天
     yesterday_dt = datetime.now() - timedelta(days=1)
     end_date_str = yesterday_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
@@ -121,45 +128,57 @@ def main():
         print("✨ 資料庫已是最新狀態，無需填補！")
         return
 
-    # 2. 迴圈補齊資料
-    print(f"🚀 開始自動補齊中斷日期：自 {start_date_str} 至 {end_date_str}")
-    all_new_rows = []
+    # --- ⏳ 建立待抓取的日期清單 ---
+    print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
+    date_list = []
     curr = start_dt
     while curr <= yesterday_dt:
-        date_str = curr.strftime('%Y%m%d')
-        rows = process_data_for_date(date_str)
-        all_new_rows.extend(rows)
+        date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
+
+    # --- ⚡ 恢復並利用多執行緒平行爬取 ---
+    all_new_rows = []
+    # 可以依據網路狀況微調 max_workers（建議 2-4，避免 PCC API 觸發 rate limit）
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(process_data_for_date, date_list))
+        for res in results:
+            all_new_rows.extend(res)
         
     df_new = pd.DataFrame(all_new_rows, columns=columns)
     
-    # --- 💡 強制確保新資料的關鍵字欄位是 int 型態，避免轉為 float ---
-    for kw in KEYWORDS + ['關鍵字總計']:
-        if kw in df_new.columns:
-            df_new[kw] = df_new[kw].astype(int)
+    # 合併前預清洗新資料型態
+    target_stats_cols = KEYWORDS + ['關鍵字總計']
+    for col in target_stats_cols:
+        if col in df_new.columns:
+            df_new[col] = pd.to_numeric(df_new[col], errors='coerce').fillna(0).astype('Int64')
 
-    # 3. 合併新舊資料
+    # 合併歷史與全新數據
     df_total = pd.concat([df_old, df_new], ignore_index=True)
 
-    # 4. 全域去重與清理
+    # 全域去重
     df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-    df_total['日期'] = df_total['日期'].astype(str)
+    df_total['日期'] = df_total['日期'].astype(str).str.strip()
     
-    # 再次確認合併後的統計欄位都是整數格式
-    for kw in KEYWORDS + ['關鍵字總計']:
-        df_total[kw] = pd.to_numeric(df_total[kw], errors='coerce').fillna(0).astype(int)
-        
+    # --- 💡 核心型態鎖定：寫入 Excel 前強制轉換回標準整數型態（徹底消滅小數點） ---
+    for col in target_stats_cols:
+        if col in df_total.columns:
+            df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+            
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
-    # 5. 重新寫入 Excel（包含分區分頁）
+    # --- 💾 重新寫入 Excel 各區域分頁 ---
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
-            region_df = df_total[df_total['區域'] == region_name]
+            region_df = df_total[df_total['區域'] == region_name].copy()
             if not region_df.empty:
+                # 確保分頁資料也維持純整數
+                for col in target_stats_cols:
+                    if col in region_df.columns:
+                        region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"🎉 成功！Excel 檔案已完整填補，關鍵字獨立統計欄位無誤：{excel_path}")
+    print(f"🎉 成功！Excel 資料已利用平行執行緒填補完畢，且統計欄位皆維持純整數格式：{excel_path}")
 
 if __name__ == "__main__":
     main()
