@@ -39,23 +39,22 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.1, 0.2))
-        # 💡 強制放寬到 10 秒，徹底排除虛擬機下載超時的問題
+        # 💡 ✨ 關鍵修正 1：放寬到 10 秒！徹底解決 GitHub 國外伺服器跨海連線超時全滅的問題
         response = session.get(url, timeout=10)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
-        # 💡 偵錯日誌
-        print(f"詳情 API 請求失敗: {url}，錯誤: {e}")
+        print(f"⚠️ 明細 API 請求超時或失敗: {url}，錯誤: {e}")
     return None
 
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=10)
+        response = session.get(url, timeout=10) # 💡 同步放寬到 10 秒
         if response.status_code == 200:
             return response.json()
     except Exception as e:
-        print(f"日期 {date} 總表抓取失敗: {e}")
+        print(f"❌ 日期 {date} 總表抓取失敗: {e}")
     return None
 
 def process_data_for_date(date_str):
@@ -79,6 +78,7 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
+        # 💡 ✨ 關鍵修正 2：嚴格縮排！只有當明細「成功下載」時，才允許產生資料行，防止空資料進 Excel
         if content and 'records' in content and content['records']:
             detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
@@ -121,19 +121,18 @@ def main():
                 max_date_str = df_old['日期'].max()
                 max_dt = datetime.strptime(max_date_str, '%Y%m%d')
                 start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"📈 【偵錯】歷史檔案最後日期為: {max_date_str}，今日起爬點定點在: {start_date_str}")
+                print(f"📈 歷史檔案最後日期為: {max_date_str}，今日起爬點定點在: {start_date_str}")
         except Exception as e:
             print(f"⚠️ 歷史資料解析失敗: {e}")
 
+    # 強制設定為台灣時區 (UTC+8)
     tw_tz = timezone(timedelta(hours=8))
     today_dt = datetime.now(tw_tz)
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    print(f"⏰ 【偵錯】目前台灣時間判定為: {end_date_str}")
-    
     if start_dt > today_dt.replace(tzinfo=None):
-        print("✨ 【偵錯日誌】系統判定資料庫已是最新狀態，直接結束！")
+        print("✨ 系統判定資料庫已是最新狀態，直接結束！")
         return
 
     date_list = []
@@ -142,8 +141,6 @@ def main():
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
-    print(f"🚀 【偵錯】本次預計爬取的完整日期清單: {date_list}")
-
     all_data = []
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(process_data_for_date, date_list))
@@ -151,7 +148,6 @@ def main():
             all_data.extend(res)
 
     df_new = pd.DataFrame(all_data, columns=columns)
-    print(f"📊 【偵錯】本次新撈到的總列數（去重前）: {len(df_new)} 筆")
     
     target_stats_cols = KEYWORDS + ['關鍵字總計']
     for col in target_stats_cols:
@@ -165,11 +161,12 @@ def main():
 
     df_total = pd.concat([df_old, df_new], ignore_index=True)
     
-    old_len = len(df_total)
+    df_total['日期'] = df_total['日期'].astype(str).str.strip()
     df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
     df_total['成果連結'] = df_total['成果連結'].astype(str).str.strip()
-    df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-    print(f"🧹 【偵錯】全域去重完畢，原總數 {old_len} 筆 -> 剩餘總數 {len(df_total)} 筆")
+    
+    # 採用多重安全去重基準
+    df_total.drop_duplicates(subset=['日期', '標案名稱', '成果連結'], keep='first', inplace=True)
 
     for col in target_stats_cols:
         if col in df_total.columns:
