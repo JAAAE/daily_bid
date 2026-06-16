@@ -19,7 +19,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         persist-credentials: true
-        fetch-depth: 0 # 讀取完整歷史
+        fetch-depth: 0 # 💡 讀取完整歷史紀錄
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -40,25 +40,30 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 💡 ✨ 終極暴力破局：先把虛擬機新爬好、真正的 Excel 檔案複製一份到記憶體/暫存區
-        cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
+        # 💡 ✨ 終極暴力破局：先把虛擬機新爬好、真正包含最新數據的 Excel 複製到系统暫存區
+        if [ -f "data/採購網_決標彙整.xlsx" ]; then
+          cp data/採購網_決標彙整.xlsx /tmp/latest_excel.xlsx
+        else
+          echo "❌ 找不到爬蟲產出的 Excel 檔案！"
+          exit 1
+        fi
         
-        # 強制放棄本地所有因為爬蟲產生的暫存變更，回到跟雲端完全一致的乾淨狀態
+        # 🔥 強制放棄虛擬機裡所有引發衝突的暫存狀態，物理回歸雲端最乾淨的 Main 分支
         git reset --hard origin/main
         
-        # 重新向雲端拉取最新進度，確保絕對同步不噴錯
+        # 重新向雲端拉取進度，確保絕對同步
         git pull origin main
         
-        # 把剛剛在虛擬機裡真正爬好的最新 Excel 檔案強行貼回來覆蓋
+        # ⚡ 把剛剛在記憶體裡存好的最新 Excel 檔案，強行貼回來冷酷覆蓋！
         cp /tmp/latest_excel.xlsx data/採購網_決標彙整.xlsx
         
         # 重新強制追蹤
         git add data/採購網_決標彙整.xlsx
         
-        # 如果檔案真的有新資料變動，直接 Commit 並無痛順推
+        # 檢查檔案是否真的有實質新資料變動
         if [ -n "$(git status --porcelain)" ]; then
           git commit -m "🤖 自動更新決標資料: $(date +'%Y-%m-%d')"
           git push origin main
         else
-          echo "✨ 資料完全無變動，跳過更新。"
+          echo "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
         fi
