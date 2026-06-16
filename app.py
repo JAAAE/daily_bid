@@ -121,7 +121,7 @@ def push_excel_to_github(df_total, target_stats_cols):
     except Exception as e:
         print(f"⚠️ 同步至 GitHub 時發生異常: {e}")
 
-@st.cache_data(ttl=28800)
+@st.cache_data(ttl=5)
 def get_integrated_data():
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     target_stats_cols = KEYWORDS + ['關鍵字總計']
