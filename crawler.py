@@ -1,7 +1,7 @@
 import os
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone # 💡 導入 timezone
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
@@ -38,7 +38,7 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.1, 0.2))
-        response = session.get(url, timeout=5) # 💡 微調至 5 秒，給不穩定的政府 API 多點時間
+        response = session.get(url, timeout=5)
         if response.status_code == 200:
             return response.json()
     except Exception:
@@ -48,7 +48,7 @@ def fetch_url_content(url):
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=5) # 💡 同步微調至 5 秒
+        response = session.get(url, timeout=5)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -75,7 +75,6 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
-        # 💡 ✨ 關鍵修正：確保成功拿到詳細內容後，才把資料寫入清單
         if content and 'records' in content and content['records']:
             detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
@@ -97,7 +96,6 @@ def process_data_for_date(date_str):
             else:
                 price = raw_price
 
-            # 💡 移入 if 內部：只有抓取成功的行才准記錄！
             base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
             processed_rows.append(base_data + found_flags + [row_sum])
     
@@ -125,19 +123,22 @@ def main():
         except Exception as e:
             print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
 
-    # 配合下午五點排程：將爬取終點設定為「今天（當天）」
-    today_dt = datetime.now()
+    # 💡 ✨ 關鍵修正：強制設定為台灣時區 (UTC+8)
+    tw_tz = timezone(timedelta(hours=8))
+    today_dt = datetime.now(tw_tz) # 👈 讓 now() 永遠採用台灣時間
+    
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    if start_dt > today_dt:
+    # 如果把台灣時區拿來判定，起點大於今天才算最新
+    if start_dt > today_dt.replace(tzinfo=None):
         print("✨ 資料庫已是最新狀態，無需填補！")
         return
 
-    print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
+    print(f"🚀 開始準備填補中斷日期（台灣時間）：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
-    while curr <= today_dt:
+    while curr <= today_dt.replace(tzinfo=None): # 👈 統一去除時區標籤以便與 datetime 物件做安全比較
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
