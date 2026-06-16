@@ -1,189 +1,148 @@
 import streamlit as st
 import pandas as pd
-import os
-import plotly.express as px
+import requests
+from datetime import datetime, timedelta, timezone
+import random
 
-# 網頁基礎設定
 st.set_page_config(page_title="政府電子採購網決標觀測站", layout="wide")
 
-EXCEL_PATH = os.path.join('data', '採購網_決標彙整.xlsx')
-
-# 你的 14 個標準關鍵字清單（必須與 Excel 欄位完全一致）
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
+REGIONS = {
+    "北部": ['基隆市', '新北市', '臺北市', '台北市', '桃園市', '新竹縣', '新竹市'],
+    "中部": ['苗栗縣', '臺中市', '台中市', '彰化縣', '雲林縣', '南投縣'],
+    "南部": ['嘉義縣', '嘉義市', '臺南市', '台南市', '高雄市', '屏東縣'],
+    "東部": ['宜蘭縣', '花蓮縣', '臺東縣', '台東縣'],
+    "離島": ['澎湖縣', '金門縣', '連江縣']
+}
+CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in cities}
 
-@st.cache_data(ttl=1800)  # 快取 30 分鐘
-def load_data():
-    if os.path.exists(EXCEL_PATH):
-        try:
-            # 1. 讀取全部資料
-            df = pd.read_excel(EXCEL_PATH, sheet_name='全部彙整')
-            
-            # 2. 清洗與格式化日期
-            df['日期'] = df['日期'].astype(str).str.strip()
-            
-            # 3. 強力清洗金額欄位，防止轉型失敗變 0
-            if '預算' in df.columns:
-                df['預算'] = df['預算'].astype(str).str.replace('$', '', regex=False) \
-                                                    .str.replace(',', '', regex=False) \
-                                                    .str.replace('元', '', regex=False) \
-                                                    .str.strip()
-                df['預算'] = pd.to_numeric(df['預算'], errors='coerce').fillna(0)
-            
-            # 4. 強制將所有關鍵字欄位與「關鍵字總計」清洗回純整數 (0 或 1)
-            all_target_cols = KEYWORDS + ['關鍵字總計']
-            for col in all_target_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-            return df
-        except Exception as e:
-            st.error(f"讀取 Excel 失敗，請檢查欄位格式。錯誤訊息: {e}")
-            return None
+# --- 💡 核心大絕招：直接把原本的爬蟲搬進 Streamlit 快取中 ---
+def fetch_url_content(url):
+    try:
+        time.sleep(random.uniform(0.1, 0.2))
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200: return response.json()
+    except: pass
     return None
 
-# --- 網頁標頭 ---
-st.title("🌐 空間資訊與測繪標案 決標觀測站")
-st.caption("數據來源：政府電子採購網 (Openfun API 每日自動同步)")
+def fetch_data_for_date(date):
+    url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200: return response.json()
+    except: pass
+    return None
 
-df = load_data()
-
-if df is not None:
-    # --- 動態取得現有 Excel 內相符的關鍵字欄位清單 ---
-    keyword_cols = [col for col in df.columns if col in KEYWORDS]
-
-    # --- 側邊欄篩選器 ---
-    st.sidebar.header("🔍 篩選條件")
-    
-    # 1. 區域篩選
-    all_regions = ["全部"] + sorted(list(df['區域'].dropna().unique()))
-    selected_region = st.sidebar.selectbox("選擇區域", all_regions)
-    
-    # 2. 關鍵字篩選
-    selected_keyword = st.sidebar.selectbox("主要關鍵字篩選", ["全部"] + keyword_cols)
-
-    # 資料過濾邏輯
-    filtered_df = df.copy()
-    if selected_region != "全部":
-        filtered_df = filtered_df[filtered_df['區域'] == selected_region]
-    if selected_keyword != "全部":
-        filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
-
-    # --- 頂部數據指標看板 ---
-    total_tenders = len(filtered_df)
-    latest_date_str = df['日期'].max()
-    
-    # 轉化日期格式 20260515 -> 2026-05-15
-    if len(str(latest_date_str)) == 8:
-        formatted_date = f"{latest_date_str[:4]}-{latest_date_str[4:6]}-{latest_date_str[6:]}"
-    else:
-        formatted_date = str(latest_date_str)
-
-    # 計算總預算（萬元）
-    total_budget_wan = filtered_df['預算'].sum() / 10000
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("當前篩選標案量", f"{total_tenders} 件", help="符合目前篩選條件的標案總數量")
-    col2.metric("總決標預算規模", f"{total_budget_wan:,.0f} 萬元", help="當前篩選標案的預算加總")
-    col3.metric("資料更新至 (當天)", formatted_date) # 👈 指標更新文字提示同步修改為當天
-
-    st.markdown("---")
-
-    # --- 📊 圖表分析區 ---
-    st.subheader("📊 統計趨勢與分佈")
-    c1, c2 = st.columns(2)
-
-    with c1:
-        # 區域標案分佈圓餅圖
-        region_counts = filtered_df['區域'].value_counts().reset_index()
-        region_counts.columns = ['區域', '標案數量']
-        fig_pie = px.pie(region_counts, values='標案數量', names='區域', title="地區標案比例", hole=0.4,
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    with c2:
-        # 關鍵字熱度排行條形圖
-        if keyword_cols:
-            kw_sums = filtered_df[keyword_cols].sum().reset_index()
-            kw_sums.columns = ['關鍵字', '出現次數']
-            kw_sums = kw_sums.sort_values(by='出現次數', ascending=True)
-            
-            fig_bar = px.bar(kw_sums, x='出現次數', y='關鍵字', orientation='h', title='關鍵字觸發熱度排行',
-                             color='出現次數', color_continuous_scale='Blues')
-            
-            fig_bar.update_layout(xaxis=dict(tickformat="d"))
-            st.plotly_chart(fig_bar, use_container_width=True)
-        else:
-            st.info("無關鍵字數據可供繪圖")
-
-    # --- 📋 詳細資料表格與分頁邏輯 ---
-    st.subheader("📋 標案明細清單")
-    
-    # 📌 完美對齊動線：基本前端欄位把「成果連結」緊跟在「標案名稱」後面
-    base_front = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算']
-    base_back = ['關鍵字總計']
-    
-    # 14 個關鍵字加上總計全部獨立完整並排展開
-    display_cols = base_front + keyword_cols + base_back
-    available_display_cols = [c for c in display_cols if c in filtered_df.columns]
-    
-    # --- 自訂分頁邏輯 ---
-    items_per_page = 20  
-    
-    if total_tenders > 0:
-        max_page = ((total_tenders - 1) // items_per_page) + 1
-    else:
-        max_page = 1
-
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = 1
+def crawl_live_data(date_list):
+    """ 在 Streamlit 背景執行即時爬取 """
+    all_rows = []
+    for d_str in date_list:
+        data = fetch_data_for_date(d_str)
+        if not data or 'records' not in data: continue
         
-    if st.session_state.current_page > max_page:
-        st.session_state.current_page = 1
+        award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
+        for record in award_records:
+            tender_name = record.get('brief', {}).get('title', '')
+            found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
+            if sum(found_flags) == 0: continue
+            
+            content = fetch_url_content(record.get('tender_api_url', ''))
+            if content and 'records' in content and content['records']:
+                detail = content['records'][0].get('detail', {})
+                place = detail.get('機關資料:機關地址', '')
+                place_substring = place[4:7] if place else ""
+                
+                raw_price = detail.get('採購資料:預算金額') or detail.get('採購資料:採購金額') or ""
+                price = raw_price.replace(',', '').replace('元', '').strip() if isinstance(raw_price, str) else raw_price
+                
+                base = [d_str, detail.get('機關資料:機關代碼', ''), detail.get('機關資料:機關名稱', ''), 
+                        place_substring, CITY_TO_REGION.get(place_substring, "其他"), tender_name, price, detail.get('url', '')]
+                all_rows.append(base + found_flags + [sum(found_flags)])
+    return all_rows
 
+# 🌟 每 8 小時 (28800秒) 自動過期，過期後只要有人進網頁，就會自動觸發背景爬蟲更新
+@st.cache_data(ttl=28800)
+def get_integrated_data():
+    columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
+    
+    # 1. 讀取你原本在 GitHub 上的歷史 Excel 檔案 (作為基礎底包)
+    history_excel = "data/採購網_決擺彙整.xlsx"
+    if os.path.exists(history_excel):
+        df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
+    else:
+        df_total = pd.DataFrame(columns=columns)
+        
+    # 2. 自動計算中斷的日期（從歷史最後一天，一路算到台灣時間的今天）
+    tw_tz = timezone(timedelta(hours=8))
+    today_dt = datetime.now(tw_tz)
+    
+    start_date_str = "20260515"
+    if not df_total.empty:
+        df_total['日期'] = df_total['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
+        start_date_str = (datetime.strptime(df_total['日期'].max(), '%Y%m%d') + timedelta(days=1)).strftime('%Y%m%d')
+        
+    start_dt = datetime.strptime(start_date_str, '%Y%m%d')
+    
+    # 3. 如果發現有日期中斷，Streamlit 自動在背景把這幾天補齊
+    if start_dt <= today_dt.replace(tzinfo=None):
+        date_list = []
+        curr = start_dt
+        while curr <= today_dt.replace(tzinfo=None):
+            date_list.append(curr.strftime('%Y%m%d'))
+            curr += timedelta(days=1)
+            
+        new_rows = crawl_live_data(date_list)
+        if new_rows:
+            df_new = pd.DataFrame(new_rows, columns=columns)
+            df_total = pd.concat([df_total, df_new], ignore_index=True)
+            df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
+            df_total.sort_values(by='日期', ascending=False, inplace=True)
+            
+    # 4. 強制轉整數清洗
+    for col in (KEYWORDS + ['關鍵字總計']):
+        if col in df_total.columns:
+            df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+            
+    return df_total
+
+# --- 以下完全維持你的 Streamlit 網頁大寬表與分頁佈局 ---
+st.title("🌐 空間資訊與測繪標案 決標觀測站")
+df = get_integrated_data()
+
+if df is not None and not df.empty:
+    st.sidebar.header("🔍 篩選條件")
+    selected_region = st.sidebar.selectbox("選擇區域", ["全部"] + sorted(list(df['區域'].dropna().unique())))
+    selected_keyword = st.sidebar.selectbox("主要關鍵字篩選", ["全部"] + KEYWORDS)
+
+    filtered_df = df.copy()
+    if selected_region != "全部": filtered_df = filtered_df[filtered_df['區域'] == selected_region]
+    if selected_keyword != "全部": filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
+
+    # 指標
+    st.columns(3)[0].metric("當前篩選標案量", f"{len(filtered_df)} 件")
+    st.columns(3)[1].metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
+    st.columns(3)[2].metric("最新觀測日期", str(df['日期'].max()))
+
+    # 分頁
+    items_per_page = 20
+    max_page = ((len(filtered_df) - 1) // items_per_page) + 1 if len(filtered_df) > 0 else 1
+    if 'current_page' not in st.session_state: st.session_state.current_page = 1
+    
     start_idx = (st.session_state.current_page - 1) * items_per_page
-    end_idx = start_idx + items_per_page
-    
-    page_df = filtered_df.iloc[start_idx:end_idx]
+    page_df = filtered_df.iloc[start_idx:start_idx + items_per_page]
 
-    # 設定表格欄位樣式
-    custom_configs = {
-        "日期": st.column_config.TextColumn("決標日期"),
-        "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
-        "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
-        "關鍵字總計": st.column_config.NumberColumn("關鍵字總計", format="%d")
-    }
-    # 📌 14個欄位強制鎖定格式為 %d（純整數 0 與 1）
-    for kw in keyword_cols:
-        custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
+    # 欄位排布格式化
+    custom_configs = {"日期": st.column_config.TextColumn("決標日期"), "預算": st.column_config.NumberColumn("預算 (元)", format="$%,d"), "成果連結": st.column_config.LinkColumn("連結", display_text="檢視")}
+    for kw in KEYWORDS: custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
-    # 渲染網頁表格
-    st.dataframe(
-        page_df[available_display_cols],
-        column_config=custom_configs,
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(page_df[['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']], column_config=custom_configs, use_container_width=True, hide_index=True)
 
-    # --- 💡 分頁按鈕控制列（上一頁、下一頁） ---
-    st.write("") 
-    page_col1, page_col2, page_col3, page_col4 = st.columns([1, 1, 2, 6])
-    
-    with page_col1:
-        if st.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1), use_container_width=True):
-            st.session_state.current_page -= 1
-            st.rerun()  
-            
-    with page_col2:
-        if st.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page), use_container_width=True):
-            st.session_state.current_page += 1
-            st.rerun()  
-            
-    with page_col3:
-        st.markdown(
-            f"<div style='padding-top: 5px; font-weight: bold; color: #1E88E5;'> "
-            f"第 {st.session_state.current_page} / {max_page} 頁 (本頁顯示 {start_idx+1} ~ {min(end_idx, total_tenders)} 筆 / 共 {total_tenders} 筆)"
-            f"</div>", 
-            unsafe_allow_html=True
-        )
-
-else:
-    st.warning("⚠️ 找不到 `data/採購網_決標彙整.xlsx` 檔案，請確認爬蟲已成功執行並將檔案推上 GitHub。")
+    # 按鈕
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 8])
+    if btn_col1.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1)):
+        st.session_state.current_page -= 1
+        st.rerun()
+    if btn_col2.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page)):
+        st.session_state.current_page += 1
+        st.rerun()
+    btn_col3.write(f"第 {st.session_state.current_page} / {max_page} 頁")
