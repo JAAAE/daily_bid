@@ -19,7 +19,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         persist-credentials: true
-        fetch-depth: 0 # 💡 讀取完整歷史紀錄，防止 rebase 失敗
+        fetch-depth: 0 # 💡 讀取完整歷史
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -40,17 +40,21 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 追蹤 Excel 檔案
+        # 💡 ✨ 終極修復邏輯：先把剛剛機器人跑好、但引發衝突的本地變更清除
+        git stash || true
+        
+        # 💡 重新拉取 GitHub 雲端上最新被你推上去的版本，確保同步
+        git pull origin main --rebase
+        
+        # 💡 把剛剛跑好的 Excel 還原回來覆蓋
+        git stash pop || true
+        
+        # 重新強制追蹤
         git add data/採購網_決標彙整.xlsx
         
-        # 檢查是否有檔案變動
+        # 如果檔案真的有變動，直接 Commit 並強制順推
         if [ -n "$(git status --porcelain)" ]; then
           git commit -m "🤖 自動更新決標資料: $(date +'%Y-%m-%d')"
-          
-          # 💡 ✨ 核心修復：在 push 之前，先利用 rebase 機制強行融合雲端的最新變更，排除衝突
-          git pull origin main --rebase
-          
-          # 融合成功後，安全推網
           git push origin main
         else
           echo "✨ 資料完全無變動，跳過更新。"
