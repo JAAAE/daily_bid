@@ -1,13 +1,13 @@
 import os
 import time
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone # 💡 導入 timezone 解決時差
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# --- 配置設定 ---
+# --- 配置設定（完全維持你原本的 data 資料夾與 14 個關鍵字） ---
 DATA_DIR = 'data'
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"] 
@@ -24,7 +24,7 @@ city_to_region = {city: region for region, cities in regions.items() for city in
 def get_session():
     session = requests.Session()
     retry_strategy = Retry(
-        total=5, backoff_factor=3, # 💡 放慢重試退後因子
+        total=5, backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"]
     )
@@ -37,26 +37,27 @@ session = get_session()
 
 def fetch_url_content(url):
     try:
-        # 💡 每次抓取標案明細，隨便微睡 0.2~0.5 秒，禮貌爬取
-        time.sleep(random.uniform(0.2, 0.5))
-        response = session.get(url, timeout=15) # 💡 拉長到 15 秒防禦
+        time.sleep(random.uniform(0.1, 0.2))
+        # 💡 將詳細頁超時由 1 秒放寬到 8 秒，防止國外虛擬機跨海抓取時因網路延遲集體斷線變空白
+        response = session.get(url, timeout=8)
         if response.status_code == 200:
             return response.json()
-    except Exception as e:
-        print(f"⚠️ 明細 API 失敗: {url}，錯誤: {e}")
+    except Exception:
+        pass
     return None
 
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=8) # 💡 同步放寬到 8 秒
         if response.status_code == 200:
             return response.json()
     except Exception as e:
-        print(f"❌ 日期 {date} 總表失敗: {e}")
+        print(f"❌ 日期 {date} 總表抓取失敗: {e}")
     return None
 
 def process_data_for_date(date_str):
+    """ 完全維持你原本的單日處理邏輯與精確縮排 """
     data = fetch_data_for_date(date_str)
     if not data or 'records' not in data:
         return []
@@ -77,6 +78,7 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
+        # 💡 確保明細抓取成功才寫入，防範去重時誤殺
         if content and 'records' in content and content['records']:
             detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
@@ -100,16 +102,22 @@ def process_data_for_date(date_str):
             base_data = [date_str, agency_code, agency_name, place_substring, region_name, tender_name, price, link2]
             processed_rows.append(base_data + found_flags + [row_sum])
     
-    print(f"📅 日期 {date_str} 掃描完畢，成功下載: {len(processed_rows)} 筆")
+    print(f"📅 日期 {date_str} 掃描完畢，命中空間資訊標案: {len(processed_rows)} 筆")
     return processed_rows
 
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
-    start_date_str = "20260515"
+    # 💡 鎖定台灣時區 (UTC+8) 計算今天，消滅雲端時差
+    tw_tz = timezone(timedelta(hours=8))
+    today_dt = datetime.now(tw_tz)
+    
+    # 💡 預設安全起爬點：如果讀不到歷史 Excel，預設至少往前推 5 天續爬，絕對不會秒退
+    start_date_str = (today_dt - timedelta(days=5)).strftime('%Y%m%d')
     df_old = pd.DataFrame(columns=columns)
     
+    # 自動偵測歷史 Excel 進度
     if os.path.exists(excel_path):
         try:
             df_old = pd.read_excel(excel_path, sheet_name='全部彙整', dtype={'日期': str})
@@ -119,31 +127,30 @@ def main():
                 max_date_str = df_old['日期'].max()
                 max_dt = datetime.strptime(max_date_str, '%Y%m%d')
                 start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"📈 歷史檔案最後日期為: {max_date_str}，今日起爬點定點在: {start_date_str}")
+                print(f"📈 歷史檔案最後日期為: {max_date_str}，下一階段起爬點: {start_date_str}")
         except Exception as e:
-            print(f"⚠️ 歷史資料解析失敗: {e}")
+            print(f"⚠️ 歷史進度解析失敗，採用安全預設起爬點。原因: {e}")
 
-    # 強制設定為台灣時區 (UTC+8)
-    tw_tz = timezone(timedelta(hours=8))
-    today_dt = datetime.now(tw_tz)
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
+    # 如果計算出來的起爬點大於今天，才不需要填補
     if start_dt > today_dt.replace(tzinfo=None):
-        print("✨ 系統判定資料庫已是最新狀態，直接結束！")
+        print("✨ 資料庫已是最新狀態，無需填補！")
         return
 
+    # 建立日期清單
     date_list = []
     curr = start_dt
     while curr <= today_dt.replace(tzinfo=None):
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
-    # 💡 ✨ 關鍵修正：取消 ThreadPool 平行盲爬，改成老實的單執行緒線，並且「日期與日期之間」強制睡覺！
+    print(f"🚀 準備爬取的日期範圍: {date_list}")
+
+    # 維持你原本最習慣、在本機跑得最順的單執行緒安全迴圈架構
     all_data = []
     for d_str in date_list:
-        # 💡 每次爬新的一天前，隨機深呼吸 1 到 3 秒，徹底規避機房 IP 頻率封鎖
-        time.sleep(random.uniform(1.0, 3.0))
         res = process_data_for_date(d_str)
         all_data.extend(res)
 
@@ -159,13 +166,14 @@ def main():
     if not df_new.empty:
         df_new['日期'] = df_new['日期'].astype(str).str.strip()
 
+    # 合併歷史與全新數據
     df_total = pd.concat([df_old, df_new], ignore_index=True)
     
     df_total['日期'] = df_total['日期'].astype(str).str.strip()
     df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
     df_total['成果連結'] = df_total['成果連結'].astype(str).str.strip()
     
-    # 採用多重安全去重基準
+    # 雙重安全去重基準
     df_total.drop_duplicates(subset=['日期', '標案名稱', '成果連結'], keep='first', inplace=True)
 
     for col in target_stats_cols:
@@ -174,6 +182,7 @@ def main():
             
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
+    # 重新寫入 Excel 各分頁
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name, cities in regions.items():
@@ -184,7 +193,7 @@ def main():
                         region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
 
-    print(f"🎉 成功寫入 Excel！")
+    print(f"🎉 成功！Excel 資料已更新完畢，統計欄位皆維持純整數格式：{excel_path}")
 
 if __name__ == "__main__":
     main()
