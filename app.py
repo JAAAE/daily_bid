@@ -20,15 +20,15 @@ REGIONS = {
 }
 CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in cities}
 
-# --- GitHub 倉庫配置 (請確認與你的儲存庫路徑一致) ---
+# --- GitHub 倉庫配置 ---
 REPO_OWNER = "JAAAE"
 REPO_NAME = "daily_bid"
 FILE_PATH = "data/採購網_決標彙整.xlsx"
 
 def fetch_url_content(url):
     try:
-        time.sleep(random.uniform(0.1, 0.2))
-        response = requests.get(url, timeout=5)
+        time.sleep(random.uniform(0.05, 0.1))
+        response = requests.get(url, timeout=3) # 拉短超時防止掛起
         if response.status_code == 200: 
             return response.json()
     except: 
@@ -38,7 +38,7 @@ def fetch_url_content(url):
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=4)
         if response.status_code == 200: 
             return response.json()
     except: 
@@ -46,10 +46,11 @@ def fetch_data_for_date(date):
     return None
 
 def crawl_live_data(date_list):
+    """ 在 Streamlit 背景執行即時爬取 """
     all_rows = []
     for d_str in date_list:
         data = fetch_data_for_date(d_str)
-        if not data or 'records' not in data: 
+        if not data or 'records' not in data or not data['records']: 
             continue
         
         award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
@@ -59,11 +60,21 @@ def crawl_live_data(date_list):
             if sum(found_flags) == 0: 
                 continue
             
-            content = fetch_url_content(record.get('tender_api_url', ''))
-            if content and 'records' in content and content['records']:
-                detail = content['records'][0].get('detail', {})
+            tender_url = record.get('tender_api_url', '')
+            if not tender_url:
+                continue
+                
+            content = fetch_url_content(tender_url)
+            
+            # 安全防禦鎖：確保 records 有長度才能讀取 [0]
+            if content and 'records' in content and isinstance(content['records'], list) and len(content['records']) > 0:
+                block = content['records'][0]
+                if not block or 'detail' not in block:
+                    continue
+                
+                detail = block.get('detail', {})
                 place = detail.get('機關資料:機關地址', '')
-                place_substring = place[4:7] if place else ""
+                place_substring = place[4:7] if place and len(place) >= 7 else ""
                 
                 raw_price = detail.get('採購資料:預算金額') or detail.get('採購資料:採購金額') or ""
                 price = raw_price.replace(',', '').replace('元', '').strip() if isinstance(raw_price, str) else raw_price
@@ -74,9 +85,8 @@ def crawl_live_data(date_list):
     return all_rows
 
 def push_excel_to_github(df_total, target_stats_cols):
-    """💡 ✨ 核心大絕招：利用 GitHub API 將更新後的多分頁 Excel 檔案強制推回倉庫"""
+    """將更新後的多分頁 Excel 強制推回倉庫，解開萬年死鎖"""
     if "GITHUB_TOKEN" not in st.secrets:
-        print("⚠️ 未偵測到 Streamlit Secrets 中的 GITHUB_TOKEN，取消回寫 GitHub。")
         return
 
     token = st.secrets["GITHUB_TOKEN"]
@@ -84,11 +94,9 @@ def push_excel_to_github(df_total, target_stats_cols):
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
     try:
-        # 1. 獲取原檔案的 sha 雜湊值（這是 GitHub API 覆蓋檔案必須的通行證）
         res = requests.get(url, headers=headers)
         sha = res.json().get("sha", "") if res.status_code == 200 else ""
 
-        # 2. 在記憶體中建立二進位 Excel 數據流
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_total.to_excel(writer, sheet_name='全部彙整', index=False)
@@ -101,34 +109,34 @@ def push_excel_to_github(df_total, target_stats_cols):
                     region_df.to_excel(writer, sheet_name=region_name, index=False)
         
         excel_binary = output.getvalue()
-        # 3. 將二進位數據編碼為 Base64 字串
         base64_content = base64.b64encode(excel_binary).decode("utf-8")
 
-        # 4. 發送 PUT 請求無痛覆蓋雲端檔案
         payload = {
-            "message": f"🤖 Streamlit 背景自動同步決標 Excel: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "message": f"🤖 Streamlit 自動越過死鎖同步 Excel: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": base64_content,
             "branch": "main"
         }
         if sha: 
             payload["sha"] = sha
 
-        put_res = requests.put(url, headers=headers, json=payload)
-        if put_res.status_code in [200, 201]:
-            print("🎉 恭喜！最新 Excel 實體檔案已成功同步推回 GitHub 倉庫！")
-        else:
-            print(f"⚠️ GitHub API 寫入失敗: {put_res.text}")
+        requests.put(url, headers=headers, json=payload)
     except Exception as e:
-        print(f"⚠️ 同步至 GitHub 時發生異常: {e}")
+        print(f"⚠️ GitHub 同步失敗: {e}")
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2) # 💡 設定短快取，點開網頁立即出發重新校正
 def get_integrated_data():
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     target_stats_cols = KEYWORDS + ['關鍵字總計']
     
+    # 建立本地目錄防禦
+    os.makedirs("data", exist_ok=True)
+    
     history_excel = "data/採購網_決標彙整.xlsx"
     if os.path.exists(history_excel):
-        df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
+        try:
+            df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
+        except:
+            df_total = pd.DataFrame(columns=columns)
     else:
         df_total = pd.DataFrame(columns=columns)
         
@@ -142,7 +150,7 @@ def get_integrated_data():
         
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    has_new_data = False
+    # 💡 ✨ 終極暴力除錯核心：只要落後今天，就強制拉出一整條直到今天的日期清單，絕不被單一日期卡死
     if start_dt <= today_dt.replace(tzinfo=None):
         date_list = []
         curr = start_dt
@@ -150,29 +158,41 @@ def get_integrated_data():
             date_list.append(curr.strftime('%Y%m%d'))
             curr += timedelta(days=1)
             
+        print(f"Streamlit 背景補齊計畫啟動，日期清單: {date_list}")
         new_rows = crawl_live_data(date_list)
+        
         if new_rows:
             df_new = pd.DataFrame(new_rows, columns=columns)
             df_total = pd.concat([df_total, df_new], ignore_index=True)
             df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-            df_total.sort_values(by='日期', ascending=False, inplace=True)
-            has_new_data = True # 💡 標記今天確實有撈到全新案子
-            
-    if '預算' in df_total.columns:
-        df_total['預算'] = df_total['預算'].astype(str) \
-                                          .str.replace('$', '', regex=False) \
-                                          .str.replace(',', '', regex=False) \
-                                          .str.replace('元', '', regex=False) \
-                                          .str.strip()
-        df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+        
+        # 💡 ✨ 關鍵修正：只要觸發了日期填補，不論當天有沒有撈到新案子，我們都強制同步回推 GitHub。
+        # 這會重寫 Excel，強迫更新修改時間與 Sha 憑證，歷史指針將會瞬間跨越 5/21 阻礙！
+        df_total.sort_values(by='日期', ascending=False, inplace=True)
+        
+        # 資料型態清洗 (在同步前先做好)
+        if '預算' in df_total.columns:
+            df_total['預算'] = df_total['預算'].astype(str) \
+                                              .str.replace('$', '', regex=False) \
+                                              .str.replace(',', '', regex=False) \
+                                              .str.replace('元', '', regex=False) \
+                                              .str.strip()
+            df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
 
-    for col in target_stats_cols:
-        if col in df_total.columns:
-            df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
-            
-    # 💡 ✨ 只要有新案子，立即觸發 API 自動回寫 GitHub 倉庫，完成閉環！
-    if has_new_data:
+        for col in target_stats_cols:
+            if col in df_total.columns:
+                df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+        
+        # 強制同步至 GitHub 倉庫
         push_excel_to_github(df_total, target_stats_cols)
+    else:
+        # 如果沒落後進度，仍要確保型態正確
+        if '預算' in df_total.columns:
+            df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+        for col in target_stats_cols:
+            if col in df_total.columns:
+                df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
+        df_total.sort_values(by='日期', ascending=False, inplace=True)
             
     return df_total
 
