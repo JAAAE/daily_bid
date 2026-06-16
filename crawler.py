@@ -65,6 +65,7 @@ def process_data_for_date(date_str):
         brief = record.get('brief', {})
         tender_name = brief.get('title', '')
         
+        # --- 💡 關鍵字 0/1 統計邏輯 ---
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
         if row_sum == 0:
@@ -94,38 +95,33 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
-    # 預設起點：若完全沒有歷史 Excel 檔，就從 2026-05-15 開始爬
     start_date_str = "20260515"
     df_old = pd.DataFrame(columns=columns)
     
-    # --- 💡 核心邏輯：自動偵測現有 Excel 檔案進度 ---
+    # 1. 自動偵測歷史 Excel 進度
     if os.path.exists(excel_path):
         print("偵測到現有歷史 Excel，讀取進度中...")
         try:
             df_old = pd.read_excel(excel_path, sheet_name='全部彙整')
             df_old = df_old.reindex(columns=columns)
             if not df_old.empty:
-                # 找出舊資料裡面的最大日期
                 max_date_str = str(df_old['日期'].max()).strip()
                 max_date = datetime.strptime(max_date_str, '%Y%m%d')
-                # 從最大日期的「隔一天」開始補齊
                 start_date_str = (max_date + timedelta(days=1)).strftime('%Y%m%d')
                 print(f"📈 歷史檔案最後更新到: {max_date_str}，將從隔日 {start_date_str} 開始自動追趕進度！")
         except Exception as e:
             print(f"歷史資料讀取失敗，將採用預設設定。錯誤: {e}")
 
-    # 爬取終點：昨天（政府採購網決標公告一般在隔日最完整）
+    # 爬取終點：昨天
     yesterday_dt = datetime.now() - timedelta(days=1)
     end_date_str = yesterday_dt.strftime('%Y%m%d')
-    
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    # 如果起點已經大於昨天，代表資料已經是最新的
     if start_dt > yesterday_dt:
         print("✨ 資料庫已是最新狀態，無需填補！")
         return
 
-    # --- 🔄 開始迴圈補齊中斷的所有日期 ---
+    # 2. 迴圈補齊資料
     print(f"🚀 開始自動補齊中斷日期：自 {start_date_str} 至 {end_date_str}")
     all_new_rows = []
     curr = start_dt
@@ -137,17 +133,25 @@ def main():
         
     df_new = pd.DataFrame(all_new_rows, columns=columns)
     
-    # 將舊歷史資料與新補齊的資料合併
+    # --- 💡 強制確保新資料的關鍵字欄位是 int 型態，避免轉為 float ---
+    for kw in KEYWORDS + ['關鍵字總計']:
+        if kw in df_new.columns:
+            df_new[kw] = df_new[kw].astype(int)
+
+    # 3. 合併新舊資料
     df_total = pd.concat([df_old, df_new], ignore_index=True)
 
-    # 全域去重，確保不會有重複標案
+    # 4. 全域去重與清理
     df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
-    
-    # 統一轉成字串排版，並將最新日期排序在最上方
     df_total['日期'] = df_total['日期'].astype(str)
+    
+    # 再次確認合併後的統計欄位都是整數格式
+    for kw in KEYWORDS + ['關鍵字總計']:
+        df_total[kw] = pd.to_numeric(df_total[kw], errors='coerce').fillna(0).astype(int)
+        
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
-    # 重新寫入 Excel（包含分區分頁）
+    # 5. 重新寫入 Excel（包含分區分頁）
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
@@ -155,7 +159,7 @@ def main():
             if not region_df.empty:
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"🎉 成功！Excel 檔案已完整填補並更新至最新日期：{excel_path}")
+    print(f"🎉 成功！Excel 檔案已完整填補，關鍵字獨立統計欄位無誤：{excel_path}")
 
 if __name__ == "__main__":
     main()
