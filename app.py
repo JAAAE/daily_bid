@@ -105,7 +105,16 @@ def get_integrated_data():
             df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
             df_total.sort_values(by='日期', ascending=False, inplace=True)
             
-    # 4. 強制轉整數清洗
+    # 💡 ✨ 關鍵修正：強制對「預算」欄位進行終極清洗與數字轉型，防止 sum() 時因字串或 None 噴出 TypeError
+    if '預算' in df_total.columns:
+        df_total['預算'] = df_total['預算'].astype(str) \
+                                          .str.replace('$', '', regex=False) \
+                                          .str.replace(',', '', regex=False) \
+                                          .str.replace('元', '', regex=False) \
+                                          .str.strip()
+        df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+
+    # 4. 強制轉整數清洗統計欄位
     for col in (KEYWORDS + ['關鍵字總計']):
         if col in df_total.columns:
             df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
@@ -127,7 +136,7 @@ if df is not None and not df.empty:
     if selected_keyword != "全部": 
         filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
-    # 指標
+    # 指標 (這裡已經可以安全計算 sum() 了)
     st.columns(3)[0].metric("當前篩選標案量", f"{len(filtered_df)} 件")
     st.columns(3)[1].metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
     st.columns(3)[2].metric("最新觀測日期", str(df['日期'].max()))
