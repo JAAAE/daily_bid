@@ -37,7 +37,7 @@ session = get_session()
 
 def fetch_url_content(url):
     try:
-        time.sleep(random.uniform(0.1, 0.2))
+        time.sleep(random.uniform(0.05, 0.1))
         response = session.get(url, timeout=5)
         if response.status_code == 200:
             return response.json()
@@ -57,7 +57,7 @@ def fetch_data_for_date(date):
 
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data:
+    if not data or 'records' not in data or not data['records']:
         return []
 
     processed_rows = []
@@ -75,16 +75,18 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
-        if content and 'records' in content and content['records']:
-            detail = content['records'][0].get('detail', {})
+        if content and 'records' in content and isinstance(content['records'], list) and len(content['records']) > 0:
+            block = content['records'][0]
+            if not block or 'detail' not in block:
+                continue
+            detail = block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
             place = detail.get('機關資料:機關地址', '')
-            place_substring = place[4:7] if place else ""
+            place_substring = place[4:7] if place and len(place) >= 7 else ""
             region = CITY_TO_REGION.get(place_substring, "其他")
 
-            # 多重備用機制抓取預算金額
             raw_price = detail.get('採購資料:預算金額') or \
                         detail.get('採購資料:採購金額') or \
                         detail.get('採購資料:總預算金額') or \
@@ -105,46 +107,42 @@ def process_data_for_date(date_str):
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
+    target_stats_cols = KEYWORDS + ['關鍵字總計']
     
     start_date_str = "20260515"
     df_old = pd.DataFrame(columns=columns)
     
-    # 💡 ✨ 關鍵修正 1：讀取舊檔時，強制指定「日期」欄位必須是字串，防止被 Pandas 自動轉成浮點數
     if os.path.exists(excel_path):
-        print("偵測到現有歷史 Excel，讀取進度中...")
         try:
             df_old = pd.read_excel(excel_path, sheet_name='全部彙整', dtype={'日期': str})
             df_old = df_old.reindex(columns=columns)
             if not df_old.empty:
-                # 清洗可能存在的點零或雜質
                 df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
                 max_date_str = df_old['日期'].max()
                 max_dt = datetime.strptime(max_date_str, '%Y%m%d')
                 start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
                 print(f"📈 歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
         except Exception as e:
-            print(f"⚠️ 歷史資料解析失敗，將採用預設設定。錯誤原因: {e}")
+            print(f"⚠️ 歷史資料解析失敗: {e}")
 
-    # 強制設定為台灣時區 (UTC+8)
     tw_tz = timezone(timedelta(hours=8))
     today_dt = datetime.now(tw_tz)
     
     end_date_str = today_dt.strftime('%Y%m%d')
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
-    # 💡 ✨ 關鍵修正 2：統一移除時區標籤進行安全比較
     if start_dt > today_dt.replace(tzinfo=None):
-        print("✨ 資料庫已是最新狀態，無需填補！")
+        print("✨ 資料庫已是最新狀態，直接結束！")
         return
 
-    print(f"🚀 開始準備填補中斷日期（台灣時間）：自 {start_date_str} 至 {end_date_str}")
+    # 💡 ✨ 核心修正：強制生成「一路延伸到今天」的完整日期清單，5/21 沒資料也能直接跨過去爬 5/22
+    print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
     while curr <= today_dt.replace(tzinfo=None):
         date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
 
-    # 平行加速抓取
     all_new_rows = []
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(process_data_for_date, date_list))
@@ -153,34 +151,27 @@ def main():
         
     df_new = pd.DataFrame(all_new_rows, columns=columns)
     
-    # 合併前預清洗
-    target_stats_cols = KEYWORDS + ['關鍵字總計']
-    for col in target_stats_cols:
-        if col in df_new.columns:
-            df_new[col] = pd.to_numeric(df_new[col], errors='coerce').fillna(0).astype('Int64')
-
-    # 💡 ✨ 關鍵修正 3：確保合併前新舊資料的「日期」欄位型態百分之百絕對一致 (全文字)
     if not df_old.empty:
         df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
     if not df_new.empty:
         df_new['日期'] = df_new['日期'].astype(str).str.strip()
 
-    # 合併歷史與全新數據
     df_total = pd.concat([df_old, df_new], ignore_index=True)
     
-    # 統一去除前後空白再進行全域去重
     df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
     df_total['成果連結'] = df_total['成果連結'].astype(str).str.strip()
     df_total.drop_duplicates(subset=['標案名稱', '成果連結'], keep='first', inplace=True)
     
-    # 終極清洗：將所有關鍵字與總計欄位強制鎖定為純整數
+    if '預算' in df_total.columns:
+        df_total['預算'] = df_total['預算'].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('元', '', regex=False).str.strip()
+        df_total['預算'] = pd.to_numeric(df_total['預算'], errors='coerce').fillna(0)
+
     for col in target_stats_cols:
         if col in df_total.columns:
             df_total[col] = pd.to_numeric(df_total[col], errors='coerce').fillna(0).astype(int)
             
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
-    # 重新寫入 Excel 各區域分頁
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
@@ -191,7 +182,7 @@ def main():
                         region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"🎉 成功！Excel 資料已更新完畢，統計欄位皆維持純整數格式：{excel_path}")
+    print(f"🎉 成功！Excel 資料已更新完畢：{excel_path}")
 
 if __name__ == "__main__":
     main()
