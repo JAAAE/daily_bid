@@ -2,10 +2,10 @@ name: Daily Procurement Crawler
 
 on:
   schedule:
-    - cron: '0 9 * * *' # 每天台灣時間下午 17:00 執行
+    # 每天 台灣時間下午 17:00 執行
+    - cron: '0 9 * * *'
   workflow_dispatch: # 允許手動點擊按鈕執行
 
-# 💡 ✨ 強制開啟最高等級的檔案寫入權限
 permissions:
   contents: write
   actions: write
@@ -19,6 +19,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         persist-credentials: true
+        fetch-depth: 0 # 💡 讀取完整歷史紀錄，防止 rebase 失敗
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -39,12 +40,17 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 💡 強制追蹤 Excel 檔案
+        # 追蹤 Excel 檔案
         git add data/採購網_決標彙整.xlsx
         
-        # 檢查是否有檔案變動，如果有，才執行 commit 與 push
+        # 檢查是否有檔案變動
         if [ -n "$(git status --porcelain)" ]; then
           git commit -m "🤖 自動更新決標資料: $(date +'%Y-%m-%d')"
+          
+          # 💡 ✨ 核心修復：在 push 之前，先利用 rebase 機制強行融合雲端的最新變更，排除衝突
+          git pull origin main --rebase
+          
+          # 融合成功後，安全推網
           git push origin main
         else
           echo "✨ 資料完全無變動，跳過更新。"
