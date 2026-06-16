@@ -24,11 +24,10 @@ def load_data():
             # 3. 清洗預算金額為數值
             df['預算'] = pd.to_numeric(df['預算'], errors='coerce').fillna(0)
             
-            # 4. 💡 針對你提供的關鍵字結構進行強制轉型（消滅 0.0 / 1.0 浮點數）
+            # 4. 強制將所有關鍵字欄位與「關鍵字總計」清洗回純整數 (0 或 1)
             all_target_cols = KEYWORDS + ['關鍵字總計']
             for col in all_target_cols:
                 if col in df.columns:
-                    # 強制轉為數值，空值補 0，最後轉為標準整數型態
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
             return df
         except Exception as e:
@@ -43,7 +42,7 @@ st.caption("數據來源：政府電子採購網 (Openfun API 每日自動同步
 df = load_data()
 
 if df is not None:
-    # --- 💡 動態取得現有 Excel 內相符的關鍵字欄位清單 ---
+    # --- 動態取得現有 Excel 內相符的關鍵字欄位清單 ---
     keyword_cols = [col for col in df.columns if col in KEYWORDS]
 
     # --- 側邊欄篩選器 ---
@@ -53,7 +52,7 @@ if df is not None:
     all_regions = ["全部"] + sorted(list(df['區域'].dropna().unique()))
     selected_region = st.sidebar.selectbox("選擇區域", all_regions)
     
-    # 2. 關鍵字篩選 (會連動影響資料與圖表)
+    # 2. 關鍵字篩選
     selected_keyword = st.sidebar.selectbox("主要關鍵字篩選", ["全部"] + keyword_cols)
 
     # 資料過濾邏輯
@@ -96,10 +95,37 @@ if df is not None:
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with c2:
-        # 關鍵字熱度排行條形圖 (會直接加總你那些 0 與 1 的純整數欄位)
+        # 關鍵字熱度排行條形圖
         if keyword_cols:
             kw_sums = filtered_df[keyword_cols].sum().reset_index()
             kw_sums.columns = ['關鍵字', '出現次數']
             kw_sums = kw_sums.sort_values(by='出現次數', ascending=True)
+            
+            # ✨ 修正後的行：確保單引號完美閉合
             fig_bar = px.bar(kw_sums, x='出現次數', y='關鍵字', orientation='h', title='關鍵字觸發熱度排行',
-                             color='出現次數
+                             color='出現次數', color_continuous_scale='Blues')
+            
+            fig_bar.update_layout(xaxis=dict(tickformat="d"))
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("無關鍵字數據可供繪圖")
+
+    # --- 📋 詳細資料表格 ---
+    st.subheader("📋 標案明細清單")
+    
+    display_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結', '關鍵字總計']
+    available_display_cols = [c for c in display_cols if c in filtered_df.columns]
+    
+    st.dataframe(
+        filtered_df[available_display_cols],
+        column_config={
+            "日期": st.column_config.TextColumn("決標日期"),
+            "預算": st.column_config.NumberColumn("預算金額 (元)", format="$%,d"),
+            "成果連結": st.column_config.LinkColumn("標案詳細連結", display_text="檢視公告"),
+            "關鍵字總計": st.column_config.NumberColumn("命中組數", format="%d 組")
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.warning("⚠️ 找不到 `data/採購網_決標彙整.xlsx` 檔案，請確認爬蟲已成功執行並將檔案推上 GitHub。")
