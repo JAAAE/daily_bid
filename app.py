@@ -1,8 +1,10 @@
-import streamlit as st
+import os  
+import time  
+import random
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import requests
-from datetime import datetime, timedelta, timezone
-import random
+import streamlit as st
 
 st.set_page_config(page_title="政府電子採購網決標觀測站", layout="wide")
 
@@ -16,21 +18,24 @@ REGIONS = {
 }
 CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in cities}
 
-# --- 💡 核心大絕招：直接把原本的爬蟲搬進 Streamlit 快取中 ---
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.1, 0.2))
         response = requests.get(url, timeout=5)
-        if response.status_code == 200: return response.json()
-    except: pass
+        if response.status_code == 200: 
+            return response.json()
+    except: 
+        pass
     return None
 
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
         response = requests.get(url, timeout=5)
-        if response.status_code == 200: return response.json()
-    except: pass
+        if response.status_code == 200: 
+            return response.json()
+    except: 
+        pass
     return None
 
 def crawl_live_data(date_list):
@@ -38,13 +43,15 @@ def crawl_live_data(date_list):
     all_rows = []
     for d_str in date_list:
         data = fetch_data_for_date(d_str)
-        if not data or 'records' not in data: continue
+        if not data or 'records' not in data: 
+            continue
         
         award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
         for record in award_records:
             tender_name = record.get('brief', {}).get('title', '')
             found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
-            if sum(found_flags) == 0: continue
+            if sum(found_flags) == 0: 
+                continue
             
             content = fetch_url_content(record.get('tender_api_url', ''))
             if content and 'records' in content and content['records']:
@@ -66,7 +73,7 @@ def get_integrated_data():
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
     
     # 1. 讀取你原本在 GitHub 上的歷史 Excel 檔案 (作為基礎底包)
-    history_excel = "data/採購網_決擺彙整.xlsx"
+    history_excel = "data/採購網_決標彙整.xlsx"
     if os.path.exists(history_excel):
         df_total = pd.read_excel(history_excel, sheet_name='全部彙整', dtype={'日期': str})
     else:
@@ -115,8 +122,10 @@ if df is not None and not df.empty:
     selected_keyword = st.sidebar.selectbox("主要關鍵字篩選", ["全部"] + KEYWORDS)
 
     filtered_df = df.copy()
-    if selected_region != "全部": filtered_df = filtered_df[filtered_df['區域'] == selected_region]
-    if selected_keyword != "全部": filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
+    if selected_region != "全部": 
+        filtered_df = filtered_df[filtered_df['區域'] == selected_region]
+    if selected_keyword != "全部": 
+        filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
     # 指標
     st.columns(3)[0].metric("當前篩選標案量", f"{len(filtered_df)} 件")
@@ -126,14 +135,20 @@ if df is not None and not df.empty:
     # 分頁
     items_per_page = 20
     max_page = ((len(filtered_df) - 1) // items_per_page) + 1 if len(filtered_df) > 0 else 1
-    if 'current_page' not in st.session_state: st.session_state.current_page = 1
+    if 'current_page' not in st.session_state: 
+        st.session_state.current_page = 1
     
     start_idx = (st.session_state.current_page - 1) * items_per_page
     page_df = filtered_df.iloc[start_idx:start_idx + items_per_page]
 
     # 欄位排布格式化
-    custom_configs = {"日期": st.column_config.TextColumn("決標日期"), "預算": st.column_config.NumberColumn("預算 (元)", format="$%,d"), "成果連結": st.column_config.LinkColumn("連結", display_text="檢視")}
-    for kw in KEYWORDS: custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
+    custom_configs = {
+        "日期": st.column_config.TextColumn("決標日期"), 
+        "預算": st.column_config.NumberColumn("預算 (元)", format="$%,d"), 
+        "成果連結": st.column_config.LinkColumn("連結", display_text="檢視")
+    }
+    for kw in KEYWORDS: 
+        custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
     st.dataframe(page_df[['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']], column_config=custom_configs, use_container_width=True, hide_index=True)
 
