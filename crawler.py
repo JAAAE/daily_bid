@@ -172,4 +172,13 @@ def main():
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
             region_df = df_total[df_total['區域'] == region_name].copy()
-            if not region_
+            if not region_df.empty:
+                for col in target_stats_cols:
+                    if col in region_df.columns:
+                        region_df[col] = region_df[col].astype(int)
+                region_df.to_excel(writer, sheet_name=region_name, index=False)
+                
+    print(f"🎉 成功！Excel 資料已更新完畢，統計欄位皆維持純整數格式：{excel_path}")
+
+if __name__ == "__main__":
+    main()
