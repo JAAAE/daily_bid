@@ -9,7 +9,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # --- 配置設定 ---
-DATA_DIR = 'data'
+DATA_DIR = 'dataa'
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
@@ -38,7 +38,7 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.05, 0.1))
-        response = session.get(url, timeout=5)
+        response = session.get(url, timeout=20)
         if response.status_code == 200:
             return response.json()
     except Exception:
