@@ -9,7 +9,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # --- 配置設定 ---
-DATA_DIR = 'dataa'
+DATA_DIR = 'data'
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
