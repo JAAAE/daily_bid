@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   crawl_and_update:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
     - name: Checkout repository
