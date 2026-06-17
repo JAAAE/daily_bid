@@ -1,33 +1,28 @@
 import os
+import sys
 import time
+import codecs
 import random
+import shutil
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import sys
-import codecs 
+
+# --- 💡 修正傳統控制台 Emoji 編碼錯誤 ---
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
-# --- 配置設定 ---
-# DATA_DIR = 'data'
-# excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
-
-# --- 💡 核心修正：強制鎖定全絕對路徑 ---
-# 1. 取得目前 crawler.py 檔案所在的資料夾絕對路徑
+# --- 💡 核心路徑修正：強制鎖定實體機絕對路徑，防範目錄歪斜 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 2. 定位絕對路徑下的 data 資料夾
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-
-# 3. 最終 Excel 的絕對路徑
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
 
-print(f"環境路徑檢查 - 專案根目錄: {BASE_DIR}")
-print(f"環境路徑檢查 - Excel 預計產出位置: {excel_path}")
+# 英文備份路徑，專門用來跟 YAML 腳本進行無中文對接
+BACKUP_ENGLISH_PATH = os.path.join(BASE_DIR, "latest_crawl_output.xlsx")
+
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
     "北部": ['基隆市', '新北市', '臺北市', '台北市', '桃園市', '新竹縣', '新竹市'],
@@ -55,7 +50,7 @@ session = get_session()
 def fetch_url_content(url):
     try:
         time.sleep(random.uniform(0.05, 0.1))
-        response = session.get(url, timeout=5)
+        response = session.get(url, timeout=10)
         if response.status_code == 200:
             return response.json()
     except Exception:
@@ -65,7 +60,7 @@ def fetch_url_content(url):
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=5)
+        response = session.get(url, timeout=10)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -150,9 +145,11 @@ def main():
     
     if start_dt > today_dt.replace(tzinfo=None):
         print("資料庫已是最新狀態，直接結束！")
+        # 即使沒有新資料，也確保英文備份存在，供 YAML 工作流讀取
+        if os.path.exists(excel_path):
+            shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
         return
 
-    # 💡 ✨ 核心修正：強制生成「一路延伸到今天」的完整日期清單，5/21 沒資料也能直接跨過去爬 5/22
     print(f"開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
@@ -189,6 +186,7 @@ def main():
             
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
+    # 寫入中文路徑的 Excel 檔案
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
@@ -200,6 +198,13 @@ def main():
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
     print(f"成功！Excel 資料已更新完畢：{excel_path}")
+
+    # 💡 核心防錯機制：讓 Python 自己生成純英文名字的複製檔，避開 YAML 處理中文檔名的亂碼悲劇
+    try:
+        shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
+        print(f"[Python 內部正名] 英文備份檔已就緒: {BACKUP_ENGLISH_PATH}")
+    except Exception as e:
+        print(f"備份英文檔失敗: {e}")
 
 if __name__ == "__main__":
     main()

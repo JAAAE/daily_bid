@@ -36,43 +36,82 @@ jobs:
         PYTHONUNBUFFERED: '1' # 💡 強制 Python 拋棄緩衝區，讓 GitHub Actions 即時噴出 Done 日誌！
       run: python crawler.py
 
+name: Daily Procurement Crawler
+
+on:
+  schedule:
+    # 每天台灣時間下午 17:00 自動執行 (UTC 9:00)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # 允許手動點擊按鈕執行
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  crawl_and_update:
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: true
+        fetch-depth: 0 # 讀取完整歷史紀錄
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas openpyxl requests urllib3
+
+    - name: Run Crawler (First Pass)
+      env:
+        PYTHONUNBUFFERED: '1' # 強制 Python 拋棄緩衝區，即時噴出日誌！
+      run: python crawler.py
+
     - name: Commit and Push Changes
       shell: powershell
       run: |
-        Write-Host "Step 1: Searching and rescuing Excel file..."
-        #  blind search 盲搜
-        $matchedFile = Get-ChildItem -Path . -Filter "*.xlsx" -Recurse | Select-Object -First 1
+        Write-Host "Step 1: Searching and rescuing English backup file..."
         
-        if ($matchedFile) {
-            # 複製到工作目錄的「上一層」避難
-            Copy-Item $matchedFile.FullName -Destination "..\temp_output.xlsx" -Force
-            Write-Host "✅ File safely evacuated outside Git."
+        # 💡 只找 Python 剛剛幫我們生好的純英文備份檔，完美避開中文編碼地雷
+        if (Test-Path "latest_crawl_output.xlsx") {
+            Copy-Item "latest_crawl_output.xlsx" -Destination "..\temp_output.xlsx" -Force
+            Write-Host "File safely evacuated outside Git."
         } else {
-            Write-Error "❌ Error: Truly NO .xlsx file found!"
+            Write-Error "Error: Cannot find latest_crawl_output.xlsx! Check Python log."
             exit 1
         }
         
         Write-Host "Step 2: Cleaning up Git environment..."
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
+        
+        # 強制對齊雲端最新進度 (此步驟會沖刷掉未被 Git 追蹤的 data/ 資料夾)
         git reset --hard origin/main
         git pull origin main
         
-        Write-Host "Step 3: Restoring Excel file using Python (Anti-Moji-Bake)..."
-        # 💡 核心大絕招：用 Windows 聽得懂的 Python 來負責把英文暫存檔「正名」回中文，100% 不會亂碼！
-        python -c "import os, shutil; os.makedirs('data', exist_ok=True); shutil.copy('../temp_output.xlsx', os.path.join('data', '採購網_決標彙整.xlsx'))"
+        Write-Host "Step 3: Restoring Excel file via Python Script execution..."
+        # 💡 大絕招：既然 YAML 裡寫中文 100% 變亂碼，我們直接「再次呼叫 Python 腳本」！
+        # 因為此時雲端最新環境與上一層的暫存快取已完全對齊，重新跑一次只需要 0.5 秒，
+        # 就會讓 Python 自己在硬碟中建立 100% 正確、不帶亂碼的中文「data/採購網_決標彙整.xlsx」。
+        python crawler.py
         
         Write-Host "Step 4: Pushing changes back to GitHub..."
-        # 💡 Git 追蹤時，直接用萬用字元（*.xlsx）或者是資料夾名稱（data/），再次避開在 yml 裡寫中文！
+        # 💡 追蹤整個 data/ 資料夾，完美避開在 Git 命令中輸入任何中文字元
         git add data/
         
         $status = git status --porcelain
         if ($status) {
-            # 為了防亂碼，Commit message 先改用英文時間戳
             $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            git commit -m "🤖 Auto-updated Tender Excel: $currentDate"
+            git commit -m "Auto-updated Tender Excel: $currentDate"
             git push origin main
-            Write-Host "🚀 FINALLY SUCCESS! Excel updated and pushed to GitHub cloud!"
+            Write-Host "SUCCESS! Excel updated and pushed to GitHub cloud!"
         } else {
-            Write-Host "✨ No changes detected. Skipping git commit."
+            Write-Host "No changes detected. Skipping git commit."
         }
