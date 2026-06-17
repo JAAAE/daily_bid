@@ -68,11 +68,15 @@ def fetch_data_for_date(date):
 
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data or not data['records']:
+    if not data or 'records' not in data:
         return []
 
     processed_rows = []
-    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
+    # 第一層過濾：確保該日期清單中定義為決標公告
+    award_records = [
+        r for r in data['records'] 
+        if r.get('brief', {}).get('type') == "決標公告"
+    ]
 
     for record in award_records:
         brief = record.get('brief', {})
@@ -80,53 +84,53 @@ def process_data_for_date(date_str):
         
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
+        
         if row_sum == 0:
             continue
 
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
+        
+        # 初始化欄位變數
+        agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
-        # if content and 'records' in content and content['records']:
-        #     block = content['records'][0]
-        #     if not block or 'detail' not in block:
-        #         continue
-        #     detail = block.get('detail', {})
         if content and 'records' in content and content['records']:
             target_block = None
             
-            # 遍歷所有的歷史紀錄，找出真正的決標公告
+            # 🔥 關鍵修正：遍歷所有歷史紀錄，找出真正的「決標公告」block，避免抓到更正或招標公告
             for b in content['records']:
-                # 檢查這個 block 的 type，或是 detail 裡面的公告種類
-                # 註：請根據你實際 API 的欄位名稱調整（例如 b.get('type') 或 b.get('brief', {}).get('type')）
                 block_type = b.get('type') or b.get('brief', {}).get('type', '')
-                
-                if block_type == "決標公告" or "決標" in block_type:
+                if "決標公告" in block_type or block_type == "決標公告":
                     target_block = b
-                    break # 找到了就跳出迴圈
+                    break
             
-            # 如果這趟 API 歷史紀錄裡竟然沒有決標公告（通常不會，但保險起見），就跳過
-            if not target_block or 'detail' not in target_block:
+            # 如果這趟 API 的歷史紀錄裡找不到決標 block，就跳過
+            if not target_block:
                 continue
-                
+
             detail = target_block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            raw_price = detail.get('採購資料:預算金額')
-            place = detail.get('機關資料:機關地址', '')
-            place_substring = place[4:7] if place and len(place) >= 7 else ""
-            region = CITY_TO_REGION.get(place_substring, "其他")
-
-
-                      
             
-            if isinstance(raw_price, str):
-                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
-            else:
-                price = raw_price
+            # 建議：決標公告中，『採購資料:預算金額』與『採購資料:決標金額』同時存在。
+            # 如果你要看的是廠商得標金額，可考慮改為 detail.get('採購資料:決標金額', '')
+            price = detail.get('採購資料:預算金額', '')
+            
+            place = detail.get('機關資料:機關地址', '')
+            
+            # 🚀 強化地址防錯：防範郵遞區號長度影響切片
+            if place:
+                place_clean = place.strip()
+                # 移除可能存在的郵遞區號數字與空格（例如 "106 臺北市..." -> "臺北市..."）
+                place_clean = ''.join([ch for ch in place_clean if not ch.isdigit()]).key = place_clean.strip()
+                # 取前 3 個字（例如 "臺北市" 或 "新北市"）
+                place_substring = place_clean[:3]
+                region = CITY_TO_REGION.get(place_substring, "其他")
 
-            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-            processed_rows.append(base_data + found_flags + [row_sum])
+        # 🔥 修正錯位問題：依照 main() 的 columns 順序：'日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'
+        base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
+        processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
