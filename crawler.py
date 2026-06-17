@@ -66,77 +66,13 @@ def fetch_data_for_date(date):
         print(f"日期 {date} 抓取失敗: {e}")
     return None
 
-# def process_data_for_date(date_str):
-#     data = fetch_data_for_date(date_str)
-#     if not data or 'records' not in data or not data['records']:
-#         return []
-
-#     processed_rows = []
-#     award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
-
-#     for record in award_records:
-#         brief = record.get('brief', {})
-#         tender_name = brief.get('title', '')
-        
-#         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
-#         row_sum = sum(found_flags)
-#         if row_sum == 0:
-#             continue
-
-#         tender_url = record.get('tender_api_url', '')
-#         content = fetch_url_content(tender_url)
-
-#         if content and 'records' in content and content['records']:
-
-#             block = content['records'][0]
-#             if not block or 'detail' not in block:
-#                 continue
-#             detail = block.get('detail', {})
-#             agency_code = detail.get('機關資料:機關代碼', '')
-#             agency_name = detail.get('機關資料:機關名稱', '')
-#             link2 = detail.get('url', '')
-#             place = detail.get('機關資料:機關地址', '')
-#             place_substring = place[4:7] if place and len(place) >= 7 else ""
-#             region = CITY_TO_REGION.get(place_substring, "其他")
-
-#             raw_price = detail.get('採購資料:預算金額') or \
-#                         detail.get('採購資料:採購金額') or \
-#                         detail.get('採購資料:總預算金額') or \
-#                         detail.get('招標資料:預算金額') or \
-#                         detail.get('採購資料:預估金額') or ""
-            
-#             if isinstance(raw_price, str):
-#                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
-#             else:
-#                 price = raw_price
-
-#             base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-#             processed_rows.append(base_data + found_flags + [row_sum])
-    
-#     print(f"Done: {date_str} ({len(processed_rows)} rows)")
-#     return processed_rows
-這個錯誤是由於我在上面提供給你的「地址防錯程式碼」中，出現了一個打字速度太快造成的語法筆誤（Typo）。
-
-在處理 place_clean 時，我不小心把不相關的 .key = ... 黏在後面了，導致 Python 拋出 AttributeError: 'str' object has no attribute 'key'。
-
-另外，Log 第一行顯示 歷史資料解析失敗: time data 'nan' does not match format '%Y%m%d'，這代表你的 Excel 舊檔案中，「日期」欄位有空值（NaN），導致它無法正確自動推算接續日期，因而每次都退回預設的 20260515 開始跑。
-
-以下為你同時修正這兩個問題：
-
-🛠️ 核心修正：請將 process_data_for_date 改為以下正確版本
-這版修正了 .key 的語法錯誤，並優化了地址過濾數字的邏輯：
-
-Python
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data:
+    if not data or 'records' not in data or not data['records']:
         return []
 
     processed_rows = []
-    award_records = [
-        r for r in data['records'] 
-        if r.get('brief', {}).get('type') == "決標公告"
-    ]
+    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
 
     for record in award_records:
         brief = record.get('brief', {})
@@ -144,44 +80,38 @@ def process_data_for_date(date_str):
         
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
-        
         if row_sum == 0:
             continue
 
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
-        
-        agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
         if content and 'records' in content and content['records']:
-            target_block = None
-            
-            for b in content['records']:
-                block_type = b.get('type') or b.get('brief', {}).get('type', '')
-                if "決標公告" in block_type or block_type == "決標公告":
-                    target_block = b
-                    break
-            
-            if not target_block:
-                continue
 
-            detail = target_block.get('detail', {})
+            block = content['records'][0]
+            if not block or 'detail' not in block:
+                continue
+            detail = block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            price = detail.get('採購資料:預算金額', '')
             place = detail.get('機關資料:機關地址', '')
-            
-            # 🚀 修正後的地址防錯邏輯（去除了手滑打錯的 .key）
-            if place:
-                # 過濾掉所有數字（如郵遞區號）與半形全形空格
-                place_clean = ''.join([ch for ch in str(place) if not ch.isdigit()]).strip()
-                # 確保前 3 碼是正確的縣市名稱
-                place_substring = place_clean[:3]
-                region = CITY_TO_REGION.get(place_substring, "其他")
+            place_substring = place[4:7] if place and len(place) >= 7 else ""
+            region = CITY_TO_REGION.get(place_substring, "其他")
 
-        base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-        processed_rows.append(base_data + found_flags + [row_sum])
+            raw_price = detail.get('採購資料:預算金額') or \
+                        detail.get('採購資料:採購金額') or \
+                        detail.get('採購資料:總預算金額') or \
+                        detail.get('招標資料:預算金額') or \
+                        detail.get('採購資料:預估金額') or ""
+            
+            if isinstance(raw_price, str):
+                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
+            else:
+                price = raw_price
+
+            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
+            processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
