@@ -39,52 +39,40 @@ jobs:
     - name: Commit and Push Changes
       shell: powershell
       run: |
-        Write-Host "Step 1: Searching and rescuing ANY Excel file before Git reset..."
-        
-        # 💡 終極修正：不比對中文檔名，直接盲搜工作區內所有字尾是 .xlsx 的檔案
+        Write-Host "Step 1: Searching and rescuing Excel file..."
+        #  blind search 盲搜
         $matchedFile = Get-ChildItem -Path . -Filter "*.xlsx" -Recurse | Select-Object -First 1
         
         if ($matchedFile) {
-            $realPath = $matchedFile.FullName
-            Write-Host "✅ Target Excel file captured at: $realPath"
-            
-            # 複製到工作目錄的「上一層」，並強制重新命名為一個乾淨的英文檔名
-            Copy-Item $realPath -Destination "..\temp_output.xlsx" -Force
-            Write-Host "💾 File safely evacuated outside Git repository."
+            # 複製到工作目錄的「上一層」避難
+            Copy-Item $matchedFile.FullName -Destination "..\temp_output.xlsx" -Force
+            Write-Host "✅ File safely evacuated outside Git."
         } else {
-            # 如果真的連一個 .xlsx 都沒有，印出當前目錄結構幫忙排查
-            Write-Host "❌ Error: Truly NO .xlsx file found in workspace! Current directory tree:"
-            Get-ChildItem -Recurse | Select-Object FullName
-            Write-Error "Cannot find any Excel file before Git reset. Check Python output."
+            Write-Error "❌ Error: Truly NO .xlsx file found!"
             exit 1
         }
         
         Write-Host "Step 2: Cleaning up Git environment..."
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        
-        # 強制對齊雲端最新進度 (會沖刷掉未追蹤的檔案)
         git reset --hard origin/main
         git pull origin main
         
-        Write-Host "Step 3: Restoring Excel file with correct standard path..."
-        # 確保 data 資料夾存在
-        if (!(Test-Path "data")) { 
-            New-Item -ItemType Directory -Path "data" | Out-Null
-        }
+        Write-Host "Step 3: Restoring Excel file using Python (Anti-Moji-Bake)..."
+        # 💡 核心大絕招：用 Windows 聽得懂的 Python 來負責把英文暫存檔「正名」回中文，100% 不會亂碼！
+        python -c "import os, shutil; os.makedirs('data', exist_ok=True); shutil.copy('../temp_output.xlsx', os.path.join('data', '採購網_決標彙整.xlsx'))"
         
-        # 💡 把剛剛逃難成功的英文暫存檔，貼回來並「正名」為正確的中文名稱！
-        # 在這裡由 PowerShell 本地賦予它名字，能保證推上雲端時一定是對的中文
-        Copy-Item "..\temp_output.xlsx" -Destination "data\採購網_決標彙整.xlsx" -Force
+        Write-Host "Step 4: Pushing changes back to GitHub..."
+        # 💡 Git 追蹤時，直接用萬用字元（*.xlsx）或者是資料夾名稱（data/），再次避開在 yml 裡寫中文！
+        git add data/
         
-        # 4. 重新追蹤並推回雲端
-        git add "data/採購網_決標彙整.xlsx"
         $status = git status --porcelain
         if ($status) {
+            # 為了防亂碼，Commit message 先改用英文時間戳
             $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            git commit -m "🤖 自動定時更新決標 Excel: $currentDate"
+            git commit -m "🤖 Auto-updated Tender Excel: $currentDate"
             git push origin main
-            Write-Host "🚀 Success! Excel updated and pushed to GitHub successfully!"
+            Write-Host "🚀 FINALLY SUCCESS! Excel updated and pushed to GitHub cloud!"
         } else {
             Write-Host "✨ No changes detected. Skipping git commit."
         }
