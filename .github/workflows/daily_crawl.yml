@@ -43,10 +43,10 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 1. 檢查檔案是否存在 (配合你 Python 真正產出的資料夾名稱 'dataa')
-        if (Test-Path "dataa\採購網_決標彙整.xlsx") {
+        # 1. 檢查檔案是否存在 (配合你 Python 真正產出的資料夾名稱 'data')
+        if (Test-Path "data\採購網_決標彙整.xlsx") {
             # 複製到專案目錄的上一層作為暫存備份，防止 Git 切換分支時檔案被沖掉
-            Copy-Item "dataa\採購網_決標彙整.xlsx" -Destination "..\latest_excel.xlsx" -Force
+            Copy-Item "data\採購網_決標彙整.xlsx" -Destination "..\latest_excel.xlsx" -Force
             Write-Host "✅ 成功將最新 Excel 備份至暫存區"
         } else {
             Write-Error "❌ 找不到爬蟲產出的 Excel 檔案！請檢查 Python 中的 DATA_DIR 名稱"
@@ -57,12 +57,12 @@ jobs:
         git reset --hard origin/main
         git pull origin main
         
-        # 3. 確保 dataa 資料夾存在，並把最新檔案貼回來覆蓋
-        if (!(Test-Path "dataa")) { New-Item -ItemType Directory -Path "dataa" }
-        Copy-Item "..\latest_excel.xlsx" -Destination "dataa\採購網_決標彙整.xlsx" -Force
+        # 3. 確保 data 資料夾存在，並把最新檔案貼回來覆蓋
+        if (!(Test-Path "data")) { New-Item -ItemType Directory -Path "data" }
+        Copy-Item "..\latest_excel.xlsx" -Destination "data\採購網_決標彙整.xlsx" -Force
         
         # 4. 重新追蹤並推回雲端
-        git add "dataa/採購網_決標彙整.xlsx"
+        git add "data/採購網_決標彙整.xlsx"
         $status = git status --porcelain
         if ($status) {
             $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
