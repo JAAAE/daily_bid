@@ -37,33 +37,38 @@ jobs:
       run: python crawler.py
 
     - name: Commit and Push Changes
-      # 💡 移除寫死的 C:\ 絕對路徑，改用標準呼叫，讓 GitHub Runner 自動去 Path 找
-      shell: bash
+      # 💡 直接使用 Windows 實體機原生最擅長的 PowerShell，100% 避開 WSL 衝突
+      shell: powershell
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 1. 檢查檔案是否存在
-        if [ -f "data/採購網_決標彙整.xlsx" ]; then
-          cp "data/採購網_決標彙整.xlsx" ../latest_excel.xlsx
-        else
-          echo "❌ 找不到爬蟲產出的 Excel 檔案！"
-          exit 1
-        fi
+        # 1. 檢查檔案是否存在 (配合你 Python 真正產出的資料夾名稱 'dataa')
+        if (Test-Path "dataa\採購網_決標彙整.xlsx") {
+            # 複製到專案目錄的上一層作為暫存備份，防止 Git 切換分支時檔案被沖掉
+            Copy-Item "dataa\採購網_決標彙整.xlsx" -Destination "..\latest_excel.xlsx" -Force
+            Write-Host "✅ 成功將最新 Excel 備份至暫存區"
+        } else {
+            Write-Error "❌ 找不到爬蟲產出的 Excel 檔案！請檢查 Python 中的 DATA_DIR 名稱"
+            exit 1
+        }
         
-        # 2. 清除潛在衝突
+        # 2. 清除潛在衝突，強制對齊雲端最新進度
         git reset --hard origin/main
         git pull origin main
         
-        # 3. 確保資料夾存在並貼回最新檔案
-        mkdir -p data
-        cp ../latest_excel.xlsx "data/採購網_決標彙整.xlsx"
+        # 3. 確保 dataa 資料夾存在，並把最新檔案貼回來覆蓋
+        if (!(Test-Path "dataa")) { New-Item -ItemType Directory -Path "dataa" }
+        Copy-Item "..\latest_excel.xlsx" -Destination "dataa\採購網_決標彙整.xlsx" -Force
         
         # 4. 重新追蹤並推回雲端
-        git add "data/採購網_決標彙整.xlsx"
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "🤖 自動定時更新決標 Excel: $(date +'%Y-%m-%d %H:%M:%S')"
-          git push origin main
-        else
-          echo "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
-        fi
+        git add "dataa/採購網_決標彙整.xlsx"
+        $status = git status --porcelain
+        if ($status) {
+            $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            git commit -m "🤖 自動定時更新決標 Excel: $currentDate"
+            git push origin main
+            Write-Host "🚀 成功將更新後的 Excel 推回 GitHub 雲端！"
+        } else {
+            Write-Host "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
+        }
