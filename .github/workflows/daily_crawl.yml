@@ -37,28 +37,41 @@ jobs:
       run: python crawler.py
 
     - name: Commit and Push Changes
-      # 💡 直接使用 Windows 實體機原生最擅長的 PowerShell，100% 避開 WSL 衝突
       shell: powershell
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
+        Write-Host "第一步：🚀 在 Git 清算前，緊急搶救並搜尋 Excel 檔案..."
         
-        # 1. 檢查檔案是否存在 (配合你 Python 真正產出的資料夾名稱 'data')
-        if (Test-Path "data\採購網_決標彙整.xlsx") {
-            # 複製到專案目錄的上一層作為暫存備份，防止 Git 切換分支時檔案被沖掉
-            Copy-Item "data\採購網_決標彙整.xlsx" -Destination "..\latest_excel.xlsx" -Force
-            Write-Host "✅ 成功將最新 Excel 備份至暫存區"
+        # 1. 地毯式搜尋整個工作區內的目標 Excel 檔案
+        $matchedFile = Get-ChildItem -Path . -Filter "採購網_決標彙整.xlsx" -Recurse | Select-Object -First 1
+        
+        if ($matchedFile) {
+            $realPath = $matchedFile.FullName
+            Write-Host "✅ 成功攔截檔案！路徑為: $realPath"
+            
+            # 立刻複製到工作目錄的「上一層」（Git 鎖不到的地方）
+            Copy-Item $realPath -Destination "..\latest_excel.xlsx" -Force
+            Write-Host "💾 檔案已安全撤離至 Git 管轄範圍外。"
         } else {
-            Write-Error "❌ 找不到爬蟲產出的 Excel 檔案！請檢查 Python 中的 DATA_DIR 名稱"
+            Write-Error "❌ 錯誤：在 Git 重置前就已經找不到 Excel 檔案！請確認 Python 是否真的有存檔成功。"
             exit 1
         }
         
-        # 2. 清除潛在衝突，強制對齊雲端最新進度
+        Write-Host "第二步：🧹 開始清理 Git 環境..."
+        # 初始化 Git 設定
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # 此時可以放心地 reset 了，最新 Excel 已經在安全的地方（..\latest_excel.xlsx）
         git reset --hard origin/main
         git pull origin main
         
-        # 3. 確保 data 資料夾存在，並把最新檔案貼回來覆蓋
-        if (!(Test-Path "data")) { New-Item -ItemType Directory -Path "data" }
+        Write-Host "第三步：🚚 將 Excel 檔案歸位並準備推送..."
+        # 💡 這裡已經修正為單個 a 的 'data' 資料夾
+        if (!(Test-Path "data")) { 
+            New-Item -ItemType Directory -Path "data" | Out-Null
+        }
+        
+        # 把撤離的檔案貼回到正規的 data 資料夾下
         Copy-Item "..\latest_excel.xlsx" -Destination "data\採購網_決標彙整.xlsx" -Force
         
         # 4. 重新追蹤並推回雲端
@@ -68,7 +81,7 @@ jobs:
             $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             git commit -m "🤖 自動定時更新決標 Excel: $currentDate"
             git push origin main
-            Write-Host "🚀 成功將更新後的 Excel 推回 GitHub 雲端！"
+            Write-Host "🎉 終極成功！Excel 資料已完美推回 GitHub 雲端的 data/ 目錄下！"
         } else {
             Write-Host "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
         }
