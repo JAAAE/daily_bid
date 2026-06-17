@@ -37,15 +37,14 @@ jobs:
       run: python crawler.py
 
     - name: Commit and Push Changes
-      # 💡 修正縮排：確保 shell 與 run 與上面的步驟完全對齊
-      shell: 'C:\Program Files\Git\bin\bash.exe {0}'
+      # 💡 移除寫死的 C:\ 絕對路徑，改用標準呼叫，讓 GitHub Runner 自動去 Path 找
+      shell: bash
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 1. 檢查檔案是否存在（⚠️ 請再次確認你的 Python 內寫的是 data 還是 dataa 喔！）
-        if [ -f "data/採購網_決擺彙整.xlsx" ]; then
-          # 💡 安全優化：將 Linux 的 /tmp 改為當前目錄上一層，確保 Windows 實體機 100% 讀寫成功
+        # 1. 檢查檔案是否存在
+        if [ -f "data/採購網_決標彙整.xlsx" ]; then
           cp "data/採購網_決標彙整.xlsx" ../latest_excel.xlsx
         else
           echo "❌ 找不到爬蟲產出的 Excel 檔案！"
