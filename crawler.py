@@ -13,8 +13,21 @@ sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
 # --- 配置設定 ---
-DATA_DIR = 'data'
+# DATA_DIR = 'data'
+# excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
+
+# --- 💡 核心修正：強制鎖定全絕對路徑 ---
+# 1. 取得目前 crawler.py 檔案所在的資料夾絕對路徑
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 2. 定位絕對路徑下的 data 資料夾
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+
+# 3. 最終 Excel 的絕對路徑
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
+
+print(f"環境路徑檢查 - 專案根目錄: {BASE_DIR}")
+print(f"環境路徑檢查 - Excel 預計產出位置: {excel_path}")
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
     "北部": ['基隆市', '新北市', '臺北市', '台北市', '桃園市', '新竹縣', '新竹市'],
