@@ -115,13 +115,24 @@ def fetch_data_for_date(date):
     
 #     print(f"Done: {date_str} ({len(processed_rows)} rows)")
 #     return processed_rows
+這個錯誤是由於我在上面提供給你的「地址防錯程式碼」中，出現了一個打字速度太快造成的語法筆誤（Typo）。
+
+在處理 place_clean 時，我不小心把不相關的 .key = ... 黏在後面了，導致 Python 拋出 AttributeError: 'str' object has no attribute 'key'。
+
+另外，Log 第一行顯示 歷史資料解析失敗: time data 'nan' does not match format '%Y%m%d'，這代表你的 Excel 舊檔案中，「日期」欄位有空值（NaN），導致它無法正確自動推算接續日期，因而每次都退回預設的 20260515 開始跑。
+
+以下為你同時修正這兩個問題：
+
+🛠️ 核心修正：請將 process_data_for_date 改為以下正確版本
+這版修正了 .key 的語法錯誤，並優化了地址過濾數字的邏輯：
+
+Python
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
     if not data or 'records' not in data:
         return []
 
     processed_rows = []
-    # 第一層過濾：確保該日期清單中定義為決標公告
     award_records = [
         r for r in data['records'] 
         if r.get('brief', {}).get('type') == "決標公告"
@@ -140,20 +151,17 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
         
-        # 初始化欄位變數
         agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
         if content and 'records' in content and content['records']:
             target_block = None
             
-            # 🔥 關鍵修正：遍歷所有歷史紀錄，找出真正的「決標公告」block，避免抓到更正或招標公告
             for b in content['records']:
                 block_type = b.get('type') or b.get('brief', {}).get('type', '')
                 if "決標公告" in block_type or block_type == "決標公告":
                     target_block = b
                     break
             
-            # 如果這趟 API 的歷史紀錄裡找不到決標 block，就跳過
             if not target_block:
                 continue
 
@@ -161,28 +169,23 @@ def process_data_for_date(date_str):
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            
-            # 建議：決標公告中，『採購資料:預算金額』與『採購資料:決標金額』同時存在。
-            # 如果你要看的是廠商得標金額，可考慮改為 detail.get('採購資料:決標金額', '')
             price = detail.get('採購資料:預算金額', '')
-            
             place = detail.get('機關資料:機關地址', '')
             
-            # 🚀 強化地址防錯：防範郵遞區號長度影響切片
+            # 🚀 修正後的地址防錯邏輯（去除了手滑打錯的 .key）
             if place:
-                place_clean = place.strip()
-                # 移除可能存在的郵遞區號數字與空格（例如 "106 臺北市..." -> "臺北市..."）
-                place_clean = ''.join([ch for ch in place_clean if not ch.isdigit()]).key = place_clean.strip()
-                # 取前 3 個字（例如 "臺北市" 或 "新北市"）
+                # 過濾掉所有數字（如郵遞區號）與半形全形空格
+                place_clean = ''.join([ch for ch in str(place) if not ch.isdigit()]).strip()
+                # 確保前 3 碼是正確的縣市名稱
                 place_substring = place_clean[:3]
                 region = CITY_TO_REGION.get(place_substring, "其他")
 
-        # 🔥 修正錯位問題：依照 main() 的 columns 順序：'日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'
         base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
         processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
+
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     columns = ['日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'] + KEYWORDS + ['關鍵字總計']
