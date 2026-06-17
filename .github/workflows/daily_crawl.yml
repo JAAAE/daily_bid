@@ -31,44 +31,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas openpyxl requests urllib3
 
-    - name: Run Crawler
-      env:
-        PYTHONUNBUFFERED: '1' # 💡 強制 Python 拋棄緩衝區，讓 GitHub Actions 即時噴出 Done 日誌！
-      run: python crawler.py
-
-name: Daily Procurement Crawler
-
-on:
-  schedule:
-    # 每天台灣時間下午 17:00 自動執行 (UTC 9:00)
-    - cron: '0 9 * * *'
-  workflow_dispatch: # 允許手動點擊按鈕執行
-
-permissions:
-  contents: write
-  actions: write
-
-jobs:
-  crawl_and_update:
-    runs-on: self-hosted
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        persist-credentials: true
-        fetch-depth: 0 # 讀取完整歷史紀錄
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pandas openpyxl requests urllib3
-
     - name: Run Crawler (First Pass)
       env:
         PYTHONUNBUFFERED: '1' # 強制 Python 拋棄緩衝區，即時噴出日誌！
