@@ -11,7 +11,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# --- 💡 修正傳統控制台 Emoji 編碼錯誤 ---
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
@@ -81,37 +80,27 @@ def process_data_for_date(date_str):
         
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
+        
         if row_sum == 0:
             continue
 
         tender_url = record.get('tender_api_url', '')
+        
+        
         content = fetch_url_content(tender_url)
+        agency_code, price, link2, place_substring = "", "", "", ""
 
-        if content and 'records' in content and isinstance(content['records'], list) and len(content['records']) > 0:
-            block = content['records'][0]
-            if not block or 'detail' not in block:
-                continue
-            detail = block.get('detail', {})
+        if content and 'records' in content and content['records']:
+            detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
+            price = detail.get('採購資料:預算金額', '')
             place = detail.get('機關資料:機關地址', '')
-            place_substring = place[4:7] if place and len(place) >= 7 else ""
-            region = CITY_TO_REGION.get(place_substring, "其他")
+            place_substring = place[4:7] if place else ""
 
-            raw_price = detail.get('採購資料:預算金額') or \
-                        detail.get('採購資料:採購金額') or \
-                        detail.get('採購資料:總預算金額') or \
-                        detail.get('招標資料:預算金額') or \
-                        detail.get('採購資料:預估金額') or ""
-            
-            if isinstance(raw_price, str):
-                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
-            else:
-                price = raw_price
-
-            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-            processed_rows.append(base_data + found_flags + [row_sum])
+        base_data = [date_str, agency_code, agency_name, place_substring, tender_name, price, link2]
+        processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
