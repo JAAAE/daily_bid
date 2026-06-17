@@ -68,15 +68,11 @@ def fetch_data_for_date(date):
 
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data:
+    if not data or 'records' not in data or not data['records']:
         return []
 
     processed_rows = []
-    # 第一層過濾：確保該日期清單中定義為決標公告
-    award_records = [
-        r for r in data['records'] 
-        if r.get('brief', {}).get('type') == "決標公告"
-    ]
+    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
 
     for record in award_records:
         brief = record.get('brief', {})
@@ -84,53 +80,38 @@ def process_data_for_date(date_str):
         
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
-        
         if row_sum == 0:
             continue
 
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
-        
-        # 初始化欄位變數
-        agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
         if content and 'records' in content and content['records']:
-            target_block = None
-            
-            # 🔥 關鍵修正：遍歷所有歷史紀錄，找出真正的「決標公告」block，避免抓到更正或招標公告
-            for b in content['records']:
-                block_type = b.get('type') or b.get('brief', {}).get('type', '')
-                if "決標公告" in block_type or block_type == "決標公告":
-                    target_block = b
-                    break
-            
-            # 如果這趟 API 的歷史紀錄裡找不到決標 block，就跳過
-            if not target_block:
-                continue
 
-            detail = target_block.get('detail', {})
+            block = content['records'][0]
+            if not block or 'detail' not in block:
+                continue
+            detail = block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            
-            # 建議：決標公告中，『採購資料:預算金額』與『採購資料:決標金額』同時存在。
-            # 如果你要看的是廠商得標金額，可考慮改為 detail.get('採購資料:決標金額', '')
-            price = detail.get('採購資料:預算金額', '')
-            
             place = detail.get('機關資料:機關地址', '')
-            
-            # 🚀 強化地址防錯：防範郵遞區號長度影響切片
-            if place:
-                place_clean = place.strip()
-                # 移除可能存在的郵遞區號數字與空格（例如 "106 臺北市..." -> "臺北市..."）
-                place_clean = ''.join([ch for ch in place_clean if not ch.isdigit()]).key = place_clean.strip()
-                # 取前 3 個字（例如 "臺北市" 或 "新北市"）
-                place_substring = place_clean[:3]
-                region = CITY_TO_REGION.get(place_substring, "其他")
+            place_substring = place[4:7] if place and len(place) >= 7 else ""
+            region = CITY_TO_REGION.get(place_substring, "其他")
 
-        # 🔥 修正錯位問題：依照 main() 的 columns 順序：'日期', '機關代碼', '機關名稱', '地點', '區域', '標案名稱', '預算', '成果連結'
-        base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-        processed_rows.append(base_data + found_flags + [row_sum])
+            raw_price = detail.get('採購資料:預算金額') or \
+                        detail.get('採購資料:採購金額') or \
+                        detail.get('採購資料:總預算金額') or \
+                        detail.get('招標資料:預算金額') or \
+                        detail.get('採購資料:預估金額') or ""
+            
+            if isinstance(raw_price, str):
+                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
+            else:
+                price = raw_price
+
+            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
+            processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
