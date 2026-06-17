@@ -7,6 +7,10 @@ import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import sys
+import codecs
+sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
 # --- 配置設定 ---
 DATA_DIR = 'dataa'
@@ -121,9 +125,9 @@ def main():
                 max_date_str = df_old['日期'].max()
                 max_dt = datetime.strptime(max_date_str, '%Y%m%d')
                 start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"📈 歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
+                print(f"歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
         except Exception as e:
-            print(f"⚠️ 歷史資料解析失敗: {e}")
+            print(f"歷史資料解析失敗: {e}")
 
     tw_tz = timezone(timedelta(hours=8))
     today_dt = datetime.now(tw_tz)
@@ -132,11 +136,11 @@ def main():
     start_dt = datetime.strptime(start_date_str, '%Y%m%d')
     
     if start_dt > today_dt.replace(tzinfo=None):
-        print("✨ 資料庫已是最新狀態，直接結束！")
+        print("資料庫已是最新狀態，直接結束！")
         return
 
     # 💡 ✨ 核心修正：強制生成「一路延伸到今天」的完整日期清單，5/21 沒資料也能直接跨過去爬 5/22
-    print(f"🚀 開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
+    print(f"開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
     date_list = []
     curr = start_dt
     while curr <= today_dt.replace(tzinfo=None):
@@ -182,7 +186,7 @@ def main():
                         region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"🎉 成功！Excel 資料已更新完畢：{excel_path}")
+    print(f"成功！Excel 資料已更新完畢：{excel_path}")
 
 if __name__ == "__main__":
     main()
