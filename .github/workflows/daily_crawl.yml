@@ -39,34 +39,34 @@ jobs:
     - name: Commit and Push Changes
       shell: powershell
       run: |
-        Write-Host "第一步：🚀 在 Git 清算前，緊急搶救並搜尋 Excel 檔案..."
+        Write-Host "Step 1: Searching and rescuing Excel file before Git reset..."
         
         # 1. 地毯式搜尋整個工作區內的目標 Excel 檔案
         $matchedFile = Get-ChildItem -Path . -Filter "採購網_決標彙整.xlsx" -Recurse | Select-Object -First 1
         
         if ($matchedFile) {
             $realPath = $matchedFile.FullName
-            Write-Host "✅ 成功攔截檔案！路徑為: $realPath"
+            Write-Host "✅ Target file caught at: $realPath"
             
-            # 立刻複製到工作目錄的「上一層」（Git 鎖不到的地方）
+            # 複製到工作目錄的「上一層」（Git 鎖不到的地方）
             Copy-Item $realPath -Destination "..\latest_excel.xlsx" -Force
-            Write-Host "💾 檔案已安全撤離至 Git 管轄範圍外。"
+            Write-Host "💾 File safely evacuated outside Git repository."
         } else {
-            Write-Error "❌ 錯誤：在 Git 重置前就已經找不到 Excel 檔案！請確認 Python 是否真的有存檔成功。"
+            Write-Error "❌ Error: Cannot find Excel file before Git reset. Check Python output."
             exit 1
         }
         
-        Write-Host "第二步：🧹 開始清理 Git 環境..."
+        Write-Host "Step 2: Cleaning up Git environment..."
         # 初始化 Git 設定
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 此時可以放心地 reset 了，最新 Excel 已經在安全的地方（..\latest_excel.xlsx）
+        # 強制對齊雲端最新進度
         git reset --hard origin/main
         git pull origin main
         
-        Write-Host "第三步：🚚 將 Excel 檔案歸位並準備推送..."
-        # 💡 這裡已經修正為單個 a 的 'data' 資料夾
+        Write-Host "Step 3: Restoring Excel file and preparing to push..."
+        # 確保 data 資料夾存在
         if (!(Test-Path "data")) { 
             New-Item -ItemType Directory -Path "data" | Out-Null
         }
@@ -79,9 +79,10 @@ jobs:
         $status = git status --porcelain
         if ($status) {
             $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            # 💡 這裡的 Commit Message 包含中文字是沒問題的，因為它是傳給 Git 而不是被 PowerShell 直接執行
             git commit -m "🤖 自動定時更新決標 Excel: $currentDate"
             git push origin main
-            Write-Host "🎉 終極成功！Excel 資料已完美推回 GitHub 雲端的 data/ 目錄下！"
+            Write-Host "🚀 Success! Excel updated and pushed to GitHub successfully!"
         } else {
-            Write-Host "✨ 資料與雲端最新版比對後完全無變動，跳過更新。"
+            Write-Host "✨ No changes detected. Skipping git commit."
         }

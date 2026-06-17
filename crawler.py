@@ -8,7 +8,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import sys
-import codecs
+import codecs 
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
