@@ -86,27 +86,33 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
+        # if content and 'records' in content and content['records']:
+        #     block = content['records'][0]
+        #     if not block or 'detail' not in block:
+        #         continue
+        #     detail = block.get('detail', {})
         if content and 'records' in content and content['records']:
-            # 遍歷所有 records，尋找真正屬於決標公告的詳細資料
             target_block = None
-            for b in content['records']:
-                detail_check = b.get('detail', {})
-                # 根據你抓到的 API 結構，檢查詳細資料裡的類型名稱（例如：'公告種類' 或 '檔案名稱'）
-                # 這裡假設欄位叫 '招標資料:公告種類'，請根據實際 API 欄位調整
-                if "決標" in detail_check.get('招標資料:公告種類', '') or "決標" in b.get('type', ''):
-                    target_block = b
-                    break
             
-            # 如果在詳細資料裡找不到決標公告，就跳過
-            if not target_block:
+            # 遍歷所有的歷史紀錄，找出真正的決標公告
+            for b in content['records']:
+                # 檢查這個 block 的 type，或是 detail 裡面的公告種類
+                # 註：請根據你實際 API 的欄位名稱調整（例如 b.get('type') 或 b.get('brief', {}).get('type')）
+                block_type = b.get('type') or b.get('brief', {}).get('type', '')
+                
+                if block_type == "決標公告" or "決標" in block_type:
+                    target_block = b
+                    break # 找到了就跳出迴圈
+            
+            # 如果這趟 API 歷史紀錄裡竟然沒有決標公告（通常不會，但保險起見），就跳過
+            if not target_block or 'detail' not in target_block:
                 continue
                 
             detail = target_block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
-            # ... 後續維持原樣 ...
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            raw_price = detail.get('採購資料:預算金額', '')
+            raw_price = detail.get('採購資料:預算金額')
             place = detail.get('機關資料:機關地址', '')
             place_substring = place[4:7] if place and len(place) >= 7 else ""
             region = CITY_TO_REGION.get(place_substring, "其他")
