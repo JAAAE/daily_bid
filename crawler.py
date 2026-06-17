@@ -68,47 +68,43 @@ def fetch_data_for_date(date):
 
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data or not data['records']:
+    if not data or 'records' not in data:
         return []
 
     processed_rows = []
-    award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
+    award_records = [
+        r for r in data['records'] 
+        if r.get('brief', {}).get('type') == "決標公告"
+    ]
 
+    # 後續只需要專心處理過濾後的資料
     for record in award_records:
         brief = record.get('brief', {})
         tender_name = brief.get('title', '')
         
         found_flags = [1 if k in tender_name else 0 for k in KEYWORDS]
         row_sum = sum(found_flags)
+        
         if row_sum == 0:
             continue
 
         tender_url = record.get('tender_api_url', '')
+        
+        
         content = fetch_url_content(tender_url)
+        agency_code, price, link2, place_substring = "", "", "", ""
 
         if content and 'records' in content and content['records']:
-            block = content['records'][0]
-            if not block or 'detail' not in block:
-                continue
-            detail = block.get('detail', {})
+            detail = content['records'][0].get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
-            raw_price = detail.get('採購資料:預算金額', '')
+            price = detail.get('採購資料:預算金額', '')
             place = detail.get('機關資料:機關地址', '')
-            place_substring = place[4:7] if place and len(place) >= 7 else ""
-            region = CITY_TO_REGION.get(place_substring, "其他")
+            place_substring = place[4:7] if place else ""
 
-
-                      
-            
-            if isinstance(raw_price, str):
-                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
-            else:
-                price = raw_price
-
-            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-            processed_rows.append(base_data + found_flags + [row_sum])
+        base_data = [date_str, agency_code, agency_name, place_substring, tender_name, price, link2]
+        processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
