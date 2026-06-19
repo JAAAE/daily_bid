@@ -103,10 +103,10 @@ def process_data_for_date(date_str):
                 continue
                 
             detail = target_block.get('detail', {})
-            agency_code = detail.get('機關資料:機關代碼', '')
-            agency_name = detail.get('機關資料:機關名稱', '')
-            link2 = detail.get('url', '')
-            place = detail.get('機關資料:機關地址', '')
+            agency_code = target_block.get('detail', {}).get('機關資料:機關代碼', '')
+            agency_name = target_block.get('detail', {}).get('機關資料:機關名稱', '')
+            link2 = target_block.get('detail', {}).get('url', '')
+            place = target_block.get('detail', {}).get('機關資料:機關地址', '')
             
             # 🔥 修正 2：健全的地址數字清除過濾，防止郵遞區號使切片向後偏斜
             if place:
