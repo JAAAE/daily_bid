@@ -86,18 +86,33 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
-        if content and 'records' in content and content['records']:
+        # 初始化基礎變數，給予預設值防止錯位與遺漏
+        agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
-            block = content['records'][0]
-            if not block or 'detail' not in block:
+        if content and 'records' in content and content['records']:
+            target_block = None
+            
+            # 🔥 修正 1：遍歷歷史紀錄列表，只抓取真正的「決標公告」詳細內容，防止抓到更正或招標公告
+            for b in content['records']:
+                block_type = b.get('type') or b.get('brief', {}).get('type', '')
+                if "決標公告" in block_type or block_type == "決標公告":
+                    target_block = b
+                    break
+            
+            if not target_block:
                 continue
-            detail = block.get('detail', {})
+                
+            detail = target_block.get('detail', {})
             agency_code = detail.get('機關資料:機關代碼', '')
             agency_name = detail.get('機關資料:機關名稱', '')
             link2 = detail.get('url', '')
             place = detail.get('機關資料:機關地址', '')
-            place_substring = place[4:7] if place and len(place) >= 7 else ""
-            region = CITY_TO_REGION.get(place_substring, "其他")
+            
+            # 🔥 修正 2：健全的地址數字清除過濾，防止郵遞區號使切片向後偏斜
+            if place:
+                place_clean = ''.join([ch for ch in str(place) if not ch.isdigit()]).strip()
+                place_substring = place_clean[:3]
+                region = CITY_TO_REGION.get(place_substring, "其他")
 
             raw_price = detail.get('採購資料:預算金額') or \
                         detail.get('採購資料:採購金額') or \
@@ -110,8 +125,9 @@ def process_data_for_date(date_str):
             else:
                 price = raw_price
 
-            base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
-            processed_rows.append(base_data + found_flags + [row_sum])
+        # 🔥 修正 3：嚴格對齊 main() 中 columns 的結構：地點、區域、標案名稱、預算、成果連結
+        base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
+        processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
     return processed_rows
@@ -128,12 +144,17 @@ def main():
         try:
             df_old = pd.read_excel(excel_path, sheet_name='全部彙整', dtype={'日期': str})
             df_old = df_old.reindex(columns=columns)
+            
             if not df_old.empty:
+                # 🔥 修正 4：強制移除因 Excel 底部空行產生的 NaN，防範解析時拋出 time data 'nan' 崩潰
+                df_old = df_old.dropna(subset=['日期'])
                 df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
-                max_date_str = df_old['日期'].max()
-                max_dt = datetime.strptime(max_date_str, '%Y%m%d')
-                start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
-                print(f"歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
+                
+                if not df_old.empty:
+                    max_date_str = df_old['日期'].max()
+                    max_dt = datetime.strptime(max_date_str, '%Y%m%d')
+                    start_date_str = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
+                    print(f"歷史檔案最後真實更新到: {max_date_str}，下一階段將從 {start_date_str} 開始自動補齊！")
         except Exception as e:
             print(f"歷史資料解析失敗: {e}")
 
@@ -145,7 +166,6 @@ def main():
     
     if start_dt > today_dt.replace(tzinfo=None):
         print("資料庫已是最新狀態，直接結束！")
-        # 即使沒有新資料，也確保英文備份存在，供 YAML 工作流讀取
         if os.path.exists(excel_path):
             shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
         return
@@ -170,6 +190,7 @@ def main():
     if not df_new.empty:
         df_new['日期'] = df_new['日期'].astype(str).str.strip()
 
+    # 🔥 核心優化：將新舊資料正式合併（Append），並利用 keep='first' 確保完整留存歷史舊資料
     df_total = pd.concat([df_old, df_new], ignore_index=True)
     
     df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
@@ -197,9 +218,8 @@ def main():
                         region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"成功！Excel 資料已更新完畢：{excel_path}")
+    print(f"成功！Excel 資料已更新完畢（已實現安全 Append 追加）：{excel_path}")
 
-    # 💡 核心防錯機制：讓 Python 自己生成純英文名字的複製檔，避開 YAML 處理中文檔名的亂碼悲劇
     try:
         shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
         print(f"[Python 內部正名] 英文備份檔已就緒: {BACKUP_ENGLISH_PATH}")
