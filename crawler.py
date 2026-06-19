@@ -118,7 +118,11 @@ def process_data_for_date(date_str):
                         detail.get('採購資料:採購金額') or \
                         detail.get('採購資料:總預算金額') or \
                         detail.get('招標資料:預算金額') or \
+                        detail.get('決標資料:總決標金額') or \
                         detail.get('採購資料:預估金額') or ""
+            
+            
+    
             
             if isinstance(raw_price, str):
                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
