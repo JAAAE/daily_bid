@@ -114,15 +114,38 @@ def process_data_for_date(date_str):
                 place_substring = place_clean[:3]
                 region = CITY_TO_REGION.get(place_substring, "其他")
 
-            raw_price = detail.get('採購資料:預算金額') or \
-                        detail.get('採購資料:採購金額') or \
-                        detail.get('採購資料:總預算金額') or \
-                        detail.get('招標資料:預算金額') or \
-                        detail.get('決標資料:總決標金額') or \
-                        detail.get('採購資料:預估金額') or ""
+            # raw_price = detail.get('採購資料:預算金額') or \
+            #             detail.get('採購資料:採購金額') or \
+            #             detail.get('採購資料:總預算金額') or \
+            #             detail.get('招標資料:預算金額') or \
+            #             detail.get('決標資料:總決標金額') or \
+            #             detail.get('採購資料:預估金額') or ""
             
             
-    
+    # --- 🎯 決標金額/預算金額 模糊抓取機制 ---
+            raw_price = ""
+            
+            # 設定搜尋優先順序（通常我們更想看「決標金額」，找不到再看「預算金額」）
+            price_keywords = ["決標金額", "採購金額", "預算金額", "預估金額", "金額"]
+            
+            # 用一個變數記錄目前找到最棒的關鍵字權重（索引越前面，代表越精準）
+            best_match_idx = len(price_keywords)
+
+            # 遍歷這個 block 詳細資料裡所有的欄位名稱 (Key)
+            for key, value in detail.items():
+                if value:  # 確保該欄位真的有值
+                    for idx, kw in enumerate(price_keywords):
+                        # 如果欄位名稱包含關鍵字（例如 '決標資料:總決標金額' 包含了 '決標金額'）
+                        if kw in key and idx < best_match_idx:
+                            raw_price = str(value)
+                            best_match_idx = idx
+                            break  # 找到更優先的關鍵字，跳出這層關鍵字比對
+
+            # 清洗抓到的字串
+            if raw_price:
+                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
+            else:
+                price = "0"  # 若都找不到則預設為 0
             
             if isinstance(raw_price, str):
                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
