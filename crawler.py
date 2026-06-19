@@ -95,7 +95,7 @@ def process_data_for_date(date_str):
             # 🔥 修正 1：遍歷歷史紀錄列表，只抓取真正的「決標公告」詳細內容，防止抓到更正或招標公告
             for b in content['records']:
                 block_type = b.get('type') or b.get('brief', {}).get('type', '')
-                if "決標公告" in block_type or block_type == "決標公告":
+                if block_type == "決標公告":
                     target_block = b
                     break
             
