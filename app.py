@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="政府電子採購網決標觀測站", layout="wide")
+st.set_page_config(page_title="政府電子採購網標案(決標)", layout="wide")
 
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
