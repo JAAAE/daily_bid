@@ -53,7 +53,7 @@ def get_integrated_data():
     return df_total
 
 # --- 網頁主要渲染佈局 ---
-st.title("🌐 空間資訊與測繪標案 決標觀測站")
+st.title("🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
 df = get_integrated_data()
 
 if df is not None and not df.empty:
