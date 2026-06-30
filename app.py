@@ -62,7 +62,8 @@ def to_excel(df_to_download):
     return processed_data
 
 # --- 網頁主要渲染佈局 ---
-st.markdown("## 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")df = get_integrated_data()
+st.markdown("## 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
+df = get_integrated_data()
 
 if df is not None and not df.empty:
     st.sidebar.header("🔍 篩選條件")
