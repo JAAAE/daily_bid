@@ -62,7 +62,7 @@ def to_excel(df_to_download):
     return processed_data
 
 # --- 網頁主要渲染佈局 ---
-st.title("🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
+st.markdown("<h2 style='font-size: 25px; margin-bottom: 0px;'>🌐 政府電子採購網標案(決標，從20230519至今，每天更新)</h2>", unsafe_html=True)
 df = get_integrated_data()
 
 if df is not None and not df.empty:
@@ -78,7 +78,7 @@ if df is not None and not df.empty:
 
     # 指標
     m1, m2, m3 = st.columns(3)
-    m1.metric("當前篩選標案量", f"{len(filtered_df)} 件")
+    m1.metric("目前篩選標案量", f"{len(filtered_df)} 件")
     m2.metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
     m3.metric("資料最後更新至", str(df['日期'].max()))
     st.markdown("---")
