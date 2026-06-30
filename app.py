@@ -77,11 +77,28 @@ if df is not None and not df.empty:
         filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
     # 指標
-    m1, m2, m3 = st.columns(3)
-    m1.metric("目前篩選標案量", f"{len(filtered_df)} 件")
-    m2.metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
-    m3.metric("資料最後更新至", str(df['日期'].max()))
-    st.markdown("---")
+    with st.container(border=True):
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric(label="📊 目前篩選標案量", value=f"{len(filtered_df)} 件")
+        with m2:
+            # 將原本擠在一起的萬元改成更易讀的格式
+            total_budget = filtered_df['預算'].sum()
+            if total_budget >= 100000000: # 大於一億顯示億
+                budget_text = f"{total_budget / 100000000:,.2f} 億元"
+            else:
+                budget_text = f"{total_budget / 10000:,.0f} 萬元"
+                
+            st.metric(label="💰 總決標預算規模", value=budget_text)
+        with m3:
+            # 將日期格式化得更好看（假設原本是 20260623 -> 2026-06-23）
+            raw_date = str(df['日期'].max())
+            if len(raw_date) == 8:
+                formatted_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+            else:
+                formatted_date = raw_date
+                
+            st.metric(label="📅 資料最後更新至", value=formatted_date)
 
     # 新增功能】下載按鈕：下載當前「全部篩選後」的完整資料
     if not filtered_df.empty:
