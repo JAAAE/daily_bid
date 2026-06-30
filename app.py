@@ -61,8 +61,7 @@ def to_excel(df_to_download):
     processed_data = output.getvalue()
     return processed_data
 
-# --- 網頁主要渲染佈局 ---
-# 💡 改成 ###，字體縮小到剛剛好，且完全相容 Python 3.14
+# --- 網頁主要佈局 ---
 st.markdown("### 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
 df = get_integrated_data()
 
@@ -77,7 +76,7 @@ if df is not None and not df.empty:
     if selected_keyword != "全部": 
         filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
-    # 📌 關鍵指標數據區（對應 ### 字體大小的精緻卡片）
+    # 指標（
     with st.container(border=True):
         m1, m2, m3 = st.columns(3)
         
@@ -108,7 +107,7 @@ if df is not None and not df.empty:
                 <div style="font-size: 22px; font-weight: bold;">{formatted_date}</div>
             """)
 
-    # 📌 下載按鈕（緊湊一列，下載全部篩選資料）
+    # 下載按鈕
     if not filtered_df.empty:
         export_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
         excel_data = to_excel(filtered_df[export_cols])
