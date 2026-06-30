@@ -184,30 +184,34 @@ if df is not None and not df.empty:
     )
 
     # 頁碼控制按鈕（與底部完美貼合）
-    nav_col1, nav_col2, nav_col3 = st.columns([1.5, 1.5, 7])
+    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1.5, 1.5, 2, 5])
+        
     if nav_col1.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1), use_container_width=True):
         st.session_state.current_page -= 1
         st.rerun()
+        
     if nav_col2.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page), use_container_width=True):
         st.session_state.current_page += 1
         st.rerun()
+        
     with nav_col3:
         st.html(f"""
             <style>
-                /* 預設大螢幕：靠右對齊，並微調頂部間距 */
+                /* 預設：靠左置中對齊，完美貼在下一頁按鈕旁邊 */
                 .rwd-page-text {{
-                    text-align: right !important;
+                    text-align: left !important;
                     color: #888888;
                     font-size: 14px;
                     margin: 0;
                     padding-top: 6px;
+                    white-space: nowrap; /* 確保文字在縮放時不會怪異斷行 */
                 }}
                 
-                /* 📱 RWD 行動裝置 / 小筆電螢幕優化（當視窗寬度小於 768px 時） */
+                /* 📱 RWD 窄螢幕微調 */
                 @media (max-width: 768px) {{
                     .rwd-page-text {{
-                        text-align: center !important;  /* 自動切換為置中對齊 */
-                        padding-top: 10px;              /* 增加垂直間距 */
+                        text-align: center !important;  /* 小螢幕改為居中平衡視覺 */
+                        padding-top: 8px;
                     }}
                 }}
             </style>
@@ -215,4 +219,4 @@ if df is not None and not df.empty:
             <p class="rwd-page-text">
                 第 {st.session_state.current_page} / {max_page} 頁
             </p>
-        """)
+    """)
