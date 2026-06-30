@@ -159,7 +159,7 @@ if df is not None and not df.empty:
     for kw in KEYWORDS: 
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d", width="small")
 
-# 📌 1. 先用 CSS 注入強制的 RWD 高度（佔瀏覽器高度的 53%，防呆最小 350px）
+    # RWD
     st.html("""
         <style>
             div[data-testid="stDataFrame"] {
@@ -174,7 +174,7 @@ if df is not None and not df.empty:
         </style>
     """)
 
-    # 📌 2. 渲染表格：移除原本的 height 參數，全權交給 CSS 動態縮放
+    # 表格
     display_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
     st.dataframe(
         page_df[display_cols], 
@@ -193,7 +193,26 @@ if df is not None and not df.empty:
         st.rerun()
     with nav_col3:
         st.html(f"""
-            <p style='text-align: right; color: #888888; font-size: 14px; margin: 0; padding-top: 6px;'>
+            <style>
+                /* 預設大螢幕：靠右對齊，並微調頂部間距 */
+                .rwd-page-text {
+                    text-align: right !important;
+                    color: #888888;
+                    font-size: 14px;
+                    margin: 0;
+                    padding-top: 6px;
+                }
+                
+                /* 📱 RWD 行動裝置 / 小筆電螢幕優化（當視窗寬度小於 768px 時） */
+                @media (max-width: 768px) {
+                    .rwd-page-text {
+                        text-align: center !important;  /* 自動切換為置中對齊 */
+                        padding-top: 10px;              /* 增加一點垂直間距，避免與上面的按鈕擠在一起 */
+                    }
+                }
+            </style>
+            
+            <p class="rwd-page-text">
                 第 {st.session_state.current_page} / {max_page} 頁
             </p>
         """)
