@@ -62,7 +62,8 @@ def to_excel(df_to_download):
     return processed_data
 
 # --- 網頁主要渲染佈局 ---
-st.markdown("## 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
+# 💡 改成 ###，字體縮小到剛剛好，且完全相容 Python 3.14
+st.markdown("### 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
 df = get_integrated_data()
 
 if df is not None and not df.empty:
@@ -76,53 +77,50 @@ if df is not None and not df.empty:
     if selected_keyword != "全部": 
         filtered_df = filtered_df[filtered_df[selected_keyword] == 1]
 
-    # 指標
-with st.container(border=True):
-    m1, m2, m3 = st.columns(3)
-    
-    # 計算數值
-    total_bids = f"{len(filtered_df):,} 件"
-    
-    total_budget = filtered_df['預算'].sum()
-    if total_budget >= 100000000:
-        budget_text = f"{total_budget / 100000000:,.2f} 億元"
-    else:
-        budget_text = f"{total_budget / 10000:,.0f} 萬元"
+    # 📌 關鍵指標數據區（對應 ### 字體大小的精緻卡片）
+    with st.container(border=True):
+        m1, m2, m3 = st.columns(3)
         
-    raw_date = str(df['日期'].max())
-    formatted_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}" if len(raw_date) == 8 else raw_date
+        total_bids = f"{len(filtered_df):,} 件"
+        
+        total_budget = filtered_df['預算'].sum()
+        if total_budget >= 100000000:
+            budget_text = f"{total_budget / 100000000:,.2f} 億元"
+        else:
+            budget_text = f"{total_budget / 10000:,.0f} 萬元"
+            
+        raw_date = str(df['日期'].max())
+        formatted_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}" if len(raw_date) == 8 else raw_date
 
-    # 使用 st.html 渲染客製化尺寸（對應 ### 大小，約 20px - 24px）
-    with m1:
-        st.html(f"""
-            <div style="font-size: 15px; color: gray; margin-bottom: 5px;">📊 目前篩選標案量</div>
-            <div style="font-size: 24px; font-weight: bold;">{total_bids}</div>
-        """)
-    with m2:
-        st.html(f"""
-            <div style="font-size: 15px; color: gray; margin-bottom: 5px;">💰 總決標預算規模</div>
-            <div style="font-size: 24px; font-weight: bold;">{budget_text}</div>
-        """)
-    with m3:
-        st.html(f"""
-            <div style="font-size: 15px; color: gray; margin-bottom: 5px;">📅 資料最後更新至</div>
-            <div style="font-size: 24px; font-weight: bold;">{formatted_date}</div>
-        """)
+        with m1:
+            st.html(f"""
+                <div style="font-size: 14px; color: #888888; margin-bottom: 4px;">📊 目前篩選標案量</div>
+                <div style="font-size: 22px; font-weight: bold;">{total_bids}</div>
+            """)
+        with m2:
+            st.html(f"""
+                <div style="font-size: 14px; color: #888888; margin-bottom: 4px;">💰 總決標預算規模</div>
+                <div style="font-size: 22px; font-weight: bold;">{budget_text}</div>
+            """)
+        with m3:
+            st.html(f"""
+                <div style="font-size: 14px; color: #888888; margin-bottom: 4px;">📅 資料最後更新至</div>
+                <div style="font-size: 22px; font-weight: bold;">{formatted_date}</div>
+            """)
 
-    # 新增功能】下載按鈕：下載當前「全部篩選後」的完整資料
+    # 📌 下載按鈕（緊湊一列，下載全部篩選資料）
     if not filtered_df.empty:
-        # 指定要導出的欄位順序
         export_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
         excel_data = to_excel(filtered_df[export_cols])
         
         st.download_button(
-            label="下載完整篩選資料 (Excel)",
+            label="📥 下載「全部篩選結果」 (Excel)",
             data=excel_data,
             file_name=f"採購網篩選結果_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     else:
-        st.warning("目前篩選條件下無資料可供下載。")
+        st.warning("⚠️ 目前篩選條件下無資料可供下載。")
 
     # 分頁邏輯
     items_per_page = 20
