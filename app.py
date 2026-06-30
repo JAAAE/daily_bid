@@ -81,7 +81,6 @@ if df is not None and not df.empty:
     m1.metric("當前篩選標案量", f"{len(filtered_df)} 件")
     m2.metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
     m3.metric("資料最後更新至", str(df['日期'].max()))
-
     st.markdown("---")
 
     # 新增功能】下載按鈕：下載當前「全部篩選後」的完整資料
