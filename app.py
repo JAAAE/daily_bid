@@ -12,20 +12,30 @@ st.set_page_config(page_title="政府電子採購網標案(決標)", layout="wid
 # RWD 
 st.html("""
     <style>
-        /* 移除 Streamlit 預設頂部的大量空白 */
+        /* 1. 調整頂部留白，保留足夠空間給標題 */
         .block-container {
-            padding-top: 1.5rem !important;
+            padding-top: 2rem !important;
             padding-bottom: 0rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
         }
-        /* 壓扁所有的 HTML 區塊間距 */
-        [data-testid="stVerticalBlock"] {
-            gap: 0.4rem !important;
+        
+        /* 2. 移除會吃掉標題的隱藏區塊壓縮，改用單純減少邊距 */
+        div[data-testid="stForm"] > div,
+        div[data-testid="stMarkdownContainer"] {
+            margin-bottom: -0.2rem !important;
         }
-        /* 減少指標卡片容器的內部留白 */
+
+        /* 3. 精確壓扁指標卡片容器的內部留白 */
         div[data-testid="stContainer"] {
-            padding: 0.5rem 1rem !important;
+            padding: 0.4rem 1rem !important;
+            margin-bottom: 0.2rem !important;
+        }
+        
+        /* 4. 縮小下載按鈕元件的上下外邊距 */
+        div[data-testid="stDownloadButton"] {
+            margin-top: -0.2rem !important;
+            margin-bottom: -0.2rem !important;
         }
     </style>
 """)
