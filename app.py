@@ -159,14 +159,28 @@ if df is not None and not df.empty:
     for kw in KEYWORDS: 
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d", width="small")
 
-    # RWD 
+# 📌 1. 先用 CSS 注入強制的 RWD 高度（佔瀏覽器高度的 53%，防呆最小 350px）
+    st.html("""
+        <style>
+            div[data-testid="stDataFrame"] {
+                height: 53vh !important;
+                max-height: 53vh !important;
+                min-height: 350px !important;
+            }
+            /* 確保資料表格內部的虛擬滾動容器也同步 RWD */
+            div[data-testid="stDataFrame"] > div {
+                height: 100% !important;
+            }
+        </style>
+    """)
+
+    # 📌 2. 渲染表格：移除原本的 height 參數，全權交給 CSS 動態縮放
     display_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
     st.dataframe(
         page_df[display_cols], 
         column_config=custom_configs, 
-        use_container_width=True, 
-        hide_index=True,
-        height=int(st.session_state.get('win_height', 400) if 'win_height' in st.session_state else 420) 
+        use_container_width=True, # 寬度滿版 RWD
+        hide_index=True          # 隱藏左側索引
     )
 
     # 頁碼控制按鈕（與底部完美貼合）
