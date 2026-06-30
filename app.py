@@ -1,6 +1,7 @@
 import os  
 import time  
 import random
+import io
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import requests
@@ -52,6 +53,14 @@ def get_integrated_data():
             
     return df_total
 
+# 新增一個輔助函式：將 DataFrame 轉為 Excel 的二進位資料流（供下載使用）
+def to_excel(df_to_download):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_to_download.to_excel(writer, index=False, sheet_name='篩選結果')
+    processed_data = output.getvalue()
+    return processed_data
+
 # --- 網頁主要渲染佈局 ---
 st.title("🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
 df = get_integrated_data()
@@ -73,10 +82,31 @@ if df is not None and not df.empty:
     m2.metric("總決標預算規模", f"{filtered_df['預算'].sum() / 10000:,.0f} 萬元")
     m3.metric("資料最後更新至", str(df['日期'].max()))
 
-    # 分頁
+    st.markdown("---")
+
+    # 📥 【新增功能】下載按鈕：下載當前「全部篩選後」的完整資料
+    if not filtered_df.empty:
+        # 指定要導出的欄位順序
+        export_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
+        excel_data = to_excel(filtered_df[export_cols])
+        
+        st.download_button(
+            label="📥 下載完整篩選資料 (Excel)",
+            data=excel_data,
+            file_name=f"採購網篩選結果_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.warning("目前篩選條件下無資料可供下載。")
+
+    # 分頁邏輯
     items_per_page = 20
     max_page = ((len(filtered_df) - 1) // items_per_page) + 1 if len(filtered_df) > 0 else 1
     if 'current_page' not in st.session_state: 
+        st.session_state.current_page = 1
+    
+    # 防呆：如果切換篩選條件導致總頁數變少，重置為第一頁
+    if st.session_state.current_page > max_page:
         st.session_state.current_page = 1
     
     start_idx = (st.session_state.current_page - 1) * items_per_page
@@ -91,9 +121,10 @@ if df is not None and not df.empty:
     for kw in KEYWORDS: 
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d")
 
+    # 畫面上依然顯示分頁後的單頁資料 (page_df)
     st.dataframe(page_df[['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']], column_config=custom_configs, use_container_width=True, hide_index=True)
 
-    # 按鈕
+    # 頁碼控制按鈕
     btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 8])
     if btn_col1.button("⬅️ 上一頁", disabled=(st.session_state.current_page == 1)):
         st.session_state.current_page -= 1
