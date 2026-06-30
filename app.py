@@ -12,18 +12,20 @@ st.set_page_config(page_title="政府電子採購網標案(決標)", layout="wid
 # RWD 
 st.html("""
     <style>
-        /* 1. 調整頂部留白，保留足夠空間給標題 */
+        /* 1. 確保整體頁面留白正常 */
         .block-container {
-            padding-top: 2rem !important;
+            padding-top: 1.5rem !important;
             padding-bottom: 0rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
         }
         
-        /* 2. 移除會吃掉標題的隱藏區塊壓縮，改用單純減少邊距 */
-        div[data-testid="stForm"] > div,
-        div[data-testid="stMarkdownContainer"] {
-            margin-bottom: -0.2rem !important;
+        /* 2. 【核心修復】專門幫第一行的標題加上頂部外邊距，完美躲開被切掉的命運 */
+        .main-title {
+            margin-top: 1.8rem !important;  /* 往下推開安全區 */
+            margin-bottom: 0.5rem !important;
+            font-size: 1.6rem;
+            font-weight: bold;
         }
 
         /* 3. 精確壓扁指標卡片容器的內部留白 */
@@ -86,7 +88,7 @@ def to_excel(df_to_download):
     return output.getvalue()
 
 # --- 網頁主要佈局 ---
-st.markdown("### 🌐 政府電子採購網標案(決標，從20230519至今，每天更新)")
+st.html('<div class="main-title">🌐 政府電子採購網標案(決標，從20230519至今，每天更新)</div>')
 df = get_integrated_data()
 
 if df is not None and not df.empty:
