@@ -165,4 +165,9 @@ if df is not None and not df.empty:
     if nav_col2.button("下一頁 ➡️", disabled=(st.session_state.current_page == max_page), use_container_width=True):
         st.session_state.current_page += 1
         st.rerun()
-    nav_col3.markdown(f"<p style='text-align: right; color: #888888; font-size: 14px; margin-top: 6px;'>第 {st.session_state.current_page} / {max_page} 頁</p>", unsafe_html=True)
+    with nav_col3:
+        st.html(f"""
+            <p style='text-align: right; color: #888888; font-size: 14px; margin: 0; padding-top: 6px;'>
+                第 {st.session_state.current_page} / {max_page} 頁
+            </p>
+        """)
