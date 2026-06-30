@@ -195,21 +195,21 @@ if df is not None and not df.empty:
         st.html(f"""
             <style>
                 /* 預設大螢幕：靠右對齊，並微調頂部間距 */
-                .rwd-page-text {
+                .rwd-page-text {{
                     text-align: right !important;
                     color: #888888;
                     font-size: 14px;
                     margin: 0;
                     padding-top: 6px;
-                }
+                }}
                 
                 /* 📱 RWD 行動裝置 / 小筆電螢幕優化（當視窗寬度小於 768px 時） */
-                @media (max-width: 768px) {
-                    .rwd-page-text {
+                @media (max-width: 768px) {{
+                    .rwd-page-text {{
                         text-align: center !important;  /* 自動切換為置中對齊 */
-                        padding-top: 10px;              /* 增加一點垂直間距，避免與上面的按鈕擠在一起 */
-                    }
-                }
+                        padding-top: 10px;              /* 增加垂直間距 */
+                    }}
+                }}
             </style>
             
             <p class="rwd-page-text">
