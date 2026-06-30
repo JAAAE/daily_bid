@@ -159,25 +159,14 @@ if df is not None and not df.empty:
     for kw in KEYWORDS: 
         custom_configs[kw] = st.column_config.NumberColumn(kw, format="%d", width="small")
 
-    # RWD
-    st.html("""
-        <style>
-            /* 抓取 Streamlit 的表格包裝外層，強制給予 RWD 彈性高度 */
-            div[data-testid="stDataFrame"] {
-                height: 55vh !important;  /* 隨著瀏覽器視窗大小動態縮放 */
-                max-height: 55vh !important;
-                min-height: 350px !important; /* 防呆：螢幕太小時維持最小高度 */
-            }
-        </style>
-    """)
-
-    # 顯示當頁數據
+    # RWD 
     display_cols = ['日期', '機關名稱', '地點', '區域', '標案名稱', '成果連結', '預算'] + KEYWORDS + ['關鍵字總計']
     st.dataframe(
         page_df[display_cols], 
         column_config=custom_configs, 
-        use_container_width=True, # 寬度 RWD 滿版
-        hide_index=True
+        use_container_width=True, 
+        hide_index=True,
+        height=int(st.session_state.get('win_height', 400) if 'win_height' in st.session_state else 420) 
     )
 
     # 頁碼控制按鈕（與底部完美貼合）
