@@ -34,6 +34,17 @@ CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in
 
 def get_session():
     session = requests.Session()
+    
+    # 🔥 裝備終極偽裝，讓 Python 看起來像真實的 Chrome 瀏覽器
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1"
+    }
+    session.headers.update(headers)
+    
     retry_strategy = Retry(
         total=5, backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
@@ -48,12 +59,32 @@ session = get_session()
 
 def fetch_url_content(url):
     try:
-        time.sleep(random.uniform(0.05, 0.1))
-        response = session.get(url, timeout=10)
+        # 把最低延遲稍微拉長一點點，演得更像真人
+        time.sleep(random.uniform(0.5, 1.5))  
+        
+        # 🔥 很多時候伺服器擋 404 是因為沒有用 https 連線，這裡做個強制轉換
+        if url.startswith("http://"):
+            url = url.replace("http://", "https://")
+            
+        # 發送請求 (timeout 稍微拉長，給伺服器反應時間)
+        response = session.get(url, timeout=15)
+        
+        # 檢查狀態碼
         if response.status_code == 200:
-            return response.json()
-    except Exception:
-        pass
+            try:
+                return response.json()
+            except requests.exceptions.JSONDecodeError:
+                print(f"❌ [格式錯誤] 網址回傳的不是 JSON。前 100 字元: {response.text[:100]}")
+                return None
+        else:
+            print(f"⚠️ [狀態碼 {response.status_code}] 請求被拒或無效: {url}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        print(f"⏳ [連線逾時] 伺服器超過 15 秒未回應: {url}")
+    except Exception as e:
+        print(f"🚨 [未知錯誤] 連線失敗: {e} | URL: {url}")
+        
     return None
 
 def fetch_data_for_date(date):
@@ -94,7 +125,7 @@ def process_data_for_date(date_str):
             
             # 🔥 修正 1：遍歷歷史紀錄列表，只抓取真正的「決標公告」詳細內容，防止抓到更正或招標公告
             for b in content['records']:
-                block_type = b.get('type') or b.get('brief', {}).get('type', '')
+                block_type = b.get('detail', {}).get('type', '')
                 if block_type == "決標公告":
                     target_block = b
                     break
@@ -114,12 +145,7 @@ def process_data_for_date(date_str):
                 place_substring = place_clean[:3]
                 region = CITY_TO_REGION.get(place_substring, "其他")
 
-            # raw_price = detail.get('採購資料:預算金額') or \
-            #             detail.get('採購資料:採購金額') or \
-            #             detail.get('採購資料:總預算金額') or \
-            #             detail.get('招標資料:預算金額') or \
-            #             detail.get('決標資料:總決標金額') or \
-            #             detail.get('採購資料:預估金額') or ""
+  
             
             
     # --- 🎯 決標金額/預算金額 模糊抓取機制 ---
