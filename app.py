@@ -108,7 +108,7 @@ if df is not None and not df.empty:
         
         total_bids = f"{len(filtered_df):,} 件"
         total_budget = filtered_df['預算'].sum()
-        budget_text = f"{total_budget / 100000000:,.2f} 億元" if total_budget >= 100000000 else f"{total_budget / 1000:,.0f} 萬元"
+        budget_text = f"{total_budget / 100000000:,.2f} 億元" if total_budget >= 100000000 else f"{total_budget / 10000:,.0f} 萬元"
         raw_date = str(df['日期'].max())
         formatted_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}" if len(raw_date) == 8 else raw_date
 
