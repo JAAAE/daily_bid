@@ -14,13 +14,11 @@ from urllib3.util.retry import Retry
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
 
-# --- 💡 核心路徑修正：強制鎖定實體機絕對路徑，防範目錄歪斜 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
 
-# 英文備份路徑，專門用來跟 YAML 腳本進行無中文對接
-BACKUP_ENGLISH_PATH = os.path.join(BASE_DIR, "latest_crawl_output.xlsx")
+BACKUP_PATH = os.path.join(BASE_DIR, "latest_crawl_output.xlsx")
 
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
@@ -35,7 +33,6 @@ CITY_TO_REGION = {city: region for region, cities in REGIONS.items() for city in
 def get_session():
     session = requests.Session()
     
-    # 🔥 裝備終極偽裝，讓 Python 看起來像真實的 Chrome 瀏覽器
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -59,17 +56,13 @@ session = get_session()
 
 def fetch_url_content(url):
     try:
-        # 把最低延遲稍微拉長一點點，演得更像真人
         time.sleep(random.uniform(0.5, 1.5))  
         
-        # 🔥 很多時候伺服器擋 404 是因為沒有用 https 連線，這裡做個強制轉換
         if url.startswith("http://"):
             url = url.replace("http://", "https://")
             
-        # 發送請求 (timeout 稍微拉長，給伺服器反應時間)
         response = session.get(url, timeout=15)
         
-        # 檢查狀態碼
         if response.status_code == 200:
             try:
                 return response.json()
@@ -117,13 +110,11 @@ def process_data_for_date(date_str):
         tender_url = record.get('tender_api_url', '')
         content = fetch_url_content(tender_url)
 
-        # 初始化基礎變數，給予預設值防止錯位與遺漏
         agency_code, agency_name, price, link2, place_substring, region = "", "", "", "", "", "其他"
 
         if content and 'records' in content and content['records']:
             target_block = None
             
-            # 🔥 修正 1：遍歷歷史紀錄列表，只抓取真正的「決標公告」詳細內容，防止抓到更正或招標公告
             for b in content['records']:
                 block_type = b.get('detail', {}).get('type', '')
                 if block_type == "決標公告":
@@ -139,7 +130,6 @@ def process_data_for_date(date_str):
             link2 = target_block.get('detail', {}).get('url', '')
             place = target_block.get('detail', {}).get('機關資料:機關地址', '')
             
-            # 🔥 修正 2：健全的地址數字清除過濾，防止郵遞區號使切片向後偏斜
             if place:
                 place_clean = ''.join([ch for ch in str(place) if not ch.isdigit()]).strip()
                 place_substring = place_clean[:3]
@@ -148,37 +138,31 @@ def process_data_for_date(date_str):
   
             
             
-    # --- 🎯 決標金額/預算金額 模糊抓取機制 ---
             raw_price = ""
             
-            # 設定搜尋優先順序（通常我們更想看「決標金額」，找不到再看「預算金額」）
             price_keywords = ["決標金額", "採購金額", "預算金額", "預估金額", "金額"]
             
-            # 用一個變數記錄目前找到最棒的關鍵字權重（索引越前面，代表越精準）
             best_match_idx = len(price_keywords)
 
-            # 遍歷這個 block 詳細資料裡所有的欄位名稱 (Key)
             for key, value in detail.items():
-                if value:  # 確保該欄位真的有值
+                if value:  
                     for idx, kw in enumerate(price_keywords):
-                        # 如果欄位名稱包含關鍵字（例如 '決標資料:總決標金額' 包含了 '決標金額'）
                         if kw in key and idx < best_match_idx:
                             raw_price = str(value)
                             best_match_idx = idx
-                            break  # 找到更優先的關鍵字，跳出這層關鍵字比對
+                            break 
 
-            # 清洗抓到的字串
             if raw_price:
                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
             else:
-                price = "0"  # 若都找不到則預設為 0
+                price = "0"  
             
             if isinstance(raw_price, str):
                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
             else:
                 price = raw_price
 
-        # 🔥 修正 3：嚴格對齊 main() 中 columns 的結構：地點、區域、標案名稱、預算、成果連結
+     
         base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
         processed_rows.append(base_data + found_flags + [row_sum])
     
@@ -199,7 +183,6 @@ def main():
             df_old = df_old.reindex(columns=columns)
             
             if not df_old.empty:
-                # 🔥 修正 4：強制移除因 Excel 底部空行產生的 NaN，防範解析時拋出 time data 'nan' 崩潰
                 df_old = df_old.dropna(subset=['日期'])
                 df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
                 
@@ -220,7 +203,7 @@ def main():
     if start_dt > today_dt.replace(tzinfo=None):
         print("資料庫已是最新狀態，直接結束！")
         if os.path.exists(excel_path):
-            shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
+            shutil.copy(excel_path, BACKUP_PATH)
         return
 
     print(f"開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
@@ -243,7 +226,6 @@ def main():
     if not df_new.empty:
         df_new['日期'] = df_new['日期'].astype(str).str.strip()
 
-    # 🔥 核心優化：將新舊資料正式合併（Append），並利用 keep='first' 確保完整留存歷史舊資料
     df_total = pd.concat([df_old, df_new], ignore_index=True)
     
     df_total['標案名稱'] = df_total['標案名稱'].astype(str).str.strip()
@@ -260,7 +242,6 @@ def main():
             
     df_total.sort_values(by='日期', ascending=False, inplace=True)
 
-    # 寫入中文路徑的 Excel 檔案
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df_total.to_excel(writer, sheet_name='全部彙整', index=False)
         for region_name in REGIONS.keys():
@@ -274,8 +255,8 @@ def main():
     print(f"成功！Excel 資料已更新完畢（已實現安全 Append 追加）：{excel_path}")
 
     try:
-        shutil.copy(excel_path, BACKUP_ENGLISH_PATH)
-        print(f"[Python 內部正名] 英文備份檔已就緒: {BACKUP_ENGLISH_PATH}")
+        shutil.copy(excel_path, BACKUP_PATH)
+        print(f"[Python 內部正名] 英文備份檔已就緒: {BACKUP_PATH}")
     except Exception as e:
         print(f"備份英文檔失敗: {e}")
 
