@@ -33,7 +33,7 @@ jobs:
 
     - name: Run Crawler (First Pass)
       env:
-        PYTHONUNBUFFERED: '1' # 強制 Python 拋棄緩衝區，即時噴出日誌！
+        PYTHONUNBUFFERED: '1' 
       run: python crawler.py
 
     - name: Commit and Push Changes
@@ -41,7 +41,6 @@ jobs:
       run: |
         Write-Host "Step 1: Searching and rescuing English backup file..."
         
-        # 💡 只找 Python 剛剛幫我們生好的純英文備份檔，完美避開中文編碼地雷
         if (Test-Path "latest_crawl_output.xlsx") {
             Copy-Item "latest_crawl_output.xlsx" -Destination "..\temp_output.xlsx" -Force
             Write-Host "File safely evacuated outside Git."
@@ -59,13 +58,9 @@ jobs:
         git pull origin main
         
         Write-Host "Step 3: Restoring Excel file via Python Script execution..."
-        # 💡 大絕招：既然 YAML 裡寫中文 100% 變亂碼，我們直接「再次呼叫 Python 腳本」！
-        # 因為此時雲端最新環境與上一層的暫存快取已完全對齊，重新跑一次只需要 0.5 秒，
-        # 就會讓 Python 自己在硬碟中建立 100% 正確、不帶亂碼的中文「data/採購網_決標彙整.xlsx」。
         python crawler.py
         
         Write-Host "Step 4: Pushing changes back to GitHub..."
-        # 💡 追蹤整個 data/ 資料夾，完美避開在 Git 命令中輸入任何中文字元
         git add data/
         
         $status = git status --porcelain
