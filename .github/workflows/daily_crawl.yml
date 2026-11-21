@@ -41,6 +41,8 @@ jobs:
         run: python crawler.py
 
       - name: Commit and Push Changes
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -53,7 +55,7 @@ jobs:
           else
             CURRENT_DATE=$(TZ="Asia/Taipei" date +'%Y-%m-%d %H:%M:%S')
             git commit -m "Auto-updated Tender Excel: ${CURRENT_DATE}"
-            git pull --rebase origin main
-            git push origin main
-            echo "SUCCESS! Excel updated and pushed to GitHub!"
+            git pull --rebase origin "$TARGET_BRANCH"
+            git push origin "$TARGET_BRANCH"
+            echo "SUCCESS! Excel updated and pushed to GitHub (${TARGET_BRANCH})!"
           fi
