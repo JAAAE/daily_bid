@@ -2,72 +2,58 @@ name: Daily Procurement Crawler
 
 on:
   schedule:
-    # 每天台灣時間下午 19:00 自動執行 (UTC 11:00)
+    # 每天台灣時間晚上 19:00 自動執行 (UTC 11:00)
     - cron: '0 11 * * *'
   workflow_dispatch: # 允許手動點擊按鈕執行
 
 permissions:
   contents: write
-  actions: write
+
+concurrency:
+  group: daily-procurement-crawler
+  cancel-in-progress: false
 
 jobs:
   crawl_and_update:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        persist-credentials: true
-        fetch-depth: 0 # 讀取完整歷史紀錄
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pandas openpyxl requests urllib3
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl requests urllib3
 
-    - name: Run Crawler (First Pass)
-      env:
-        PYTHONUNBUFFERED: '1' 
-      run: python crawler.py
+      - name: Run Crawler
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python crawler.py
 
-    - name: Commit and Push Changes
-      shell: powershell
-      run: |
-        Write-Host "Step 1: Searching and rescuing English backup file..."
-        
-        if (Test-Path "latest_crawl_output.xlsx") {
-            Copy-Item "latest_crawl_output.xlsx" -Destination "..\temp_output.xlsx" -Force
-            Write-Host "File safely evacuated outside Git."
-        } else {
-            Write-Error "Error: Cannot find latest_crawl_output.xlsx! Check Python log."
-            exit 1
-        }
-        
-        Write-Host "Step 2: Cleaning up Git environment..."
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        
-        git reset --hard origin/main
-        git pull origin main
-        
-        Write-Host "Step 3: Restoring Excel file via Python Script execution..."
-        python crawler.py
-        
-        Write-Host "Step 4: Pushing changes back to GitHub..."
-        git add data/
-        
-        $status = git status --porcelain
-        if ($status) {
-            $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            git commit -m "Auto-updated Tender Excel: $currentDate"
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git config --local core.quotepath false
+
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected. Skipping git commit."
+          else
+            CURRENT_DATE=$(TZ="Asia/Taipei" date +'%Y-%m-%d %H:%M:%S')
+            git commit -m "Auto-updated Tender Excel: ${CURRENT_DATE}"
+            git pull --rebase origin main
             git push origin main
-            Write-Host "SUCCESS! Excel updated and pushed to GitHub cloud!"
-        } else {
-            Write-Host "No changes detected. Skipping git commit."
-        }
+            echo "SUCCESS! Excel updated and pushed to GitHub!"
+          fi

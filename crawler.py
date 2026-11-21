@@ -1,9 +1,7 @@
 import os
 import sys
 import time
-import codecs
 import random
-import shutil
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
@@ -11,14 +9,14 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 excel_path = os.path.join(DATA_DIR, '採購網_決標彙整.xlsx')
-
-BACKUP_PATH = os.path.join(BASE_DIR, "latest_crawl_output.xlsx")
 
 KEYWORDS = ["測繪", "空間資訊", "測量", "製圖", "圖資", "地圖", "地形", "測製", "地理資訊", "監審", "光達", "點雲", "模型", "建模"]
 REGIONS = {
@@ -83,17 +81,27 @@ def fetch_url_content(url):
 def fetch_data_for_date(date):
     url = f"https://pcc-api.openfun.app/api/listbydate?date={date}"
     try:
-        response = session.get(url, timeout=10)
+        time.sleep(random.uniform(0.3, 0.8))
+        response = session.get(url, timeout=15)
         if response.status_code == 200:
-            return response.json()
+            try:
+                return response.json()
+            except requests.exceptions.JSONDecodeError:
+                print(f"❌ 日期 {date} 回傳非 JSON 內容，前 100 字元: {response.text[:100]}")
+                return None
+        else:
+            print(f"⚠️ 日期 {date} 回傳狀態碼 {response.status_code}: {url}")
     except Exception as e:
         print(f"日期 {date} 抓取失敗: {e}")
     return None
 
 def process_data_for_date(date_str):
     data = fetch_data_for_date(date_str)
-    if not data or 'records' not in data or not data['records']:
-        return []
+    if data is None:
+        return [], True
+    if 'records' not in data or not data['records']:
+        print(f"Done: {date_str} (0 rows)")
+        return [], False
 
     processed_rows = []
     award_records = [r for r in data['records'] if r.get('brief', {}).get('type') == "決標公告"]
@@ -155,19 +163,13 @@ def process_data_for_date(date_str):
             if raw_price:
                 price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
             else:
-                price = "0"  
-            
-            if isinstance(raw_price, str):
-                price = raw_price.replace(',', '').replace('元', '').replace('$', '').strip()
-            else:
-                price = raw_price
+                price = "0"
 
-     
         base_data = [date_str, agency_code, agency_name, place_substring, region, tender_name, price, link2]
         processed_rows.append(base_data + found_flags + [row_sum])
     
     print(f"Done: {date_str} ({len(processed_rows)} rows)")
-    return processed_rows
+    return processed_rows, False
 
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -202,8 +204,6 @@ def main():
     
     if start_dt > today_dt.replace(tzinfo=None):
         print("資料庫已是最新狀態，直接結束！")
-        if os.path.exists(excel_path):
-            shutil.copy(excel_path, BACKUP_PATH)
         return
 
     print(f"開始準備填補中斷日期：自 {start_date_str} 至 {end_date_str}")
@@ -214,12 +214,23 @@ def main():
         curr += timedelta(days=1)
 
     all_new_rows = []
+    failed_dates = 0
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(process_data_for_date, date_list))
-        for res in results:
-            all_new_rows.extend(res)
-        
+        for rows, failed in results:
+            if failed:
+                failed_dates += 1
+            all_new_rows.extend(rows)
+
+    if failed_dates == len(date_list) and len(date_list) > 0:
+        print(f"🚨 所有 {len(date_list)} 個日期皆抓取失敗，請檢查 API 連線狀態或是否被限流/封鎖。")
+        sys.exit(1)
+
     df_new = pd.DataFrame(all_new_rows, columns=columns)
+
+    if df_new.empty and os.path.exists(excel_path):
+        print("本次未抓取到任何新決標資料，保留原有 Excel 檔案不覆寫。")
+        return
     
     if not df_old.empty:
         df_old['日期'] = df_old['日期'].astype(str).str.replace('.0', '', regex=False).str.strip()
@@ -252,13 +263,7 @@ def main():
                         region_df[col] = region_df[col].astype(int)
                 region_df.to_excel(writer, sheet_name=region_name, index=False)
                 
-    print(f"成功！Excel 資料已更新完畢（已實現安全 Append 追加）：{excel_path}")
-
-    try:
-        shutil.copy(excel_path, BACKUP_PATH)
-        print(f"[Python 內部正名] 英文備份檔已就緒: {BACKUP_PATH}")
-    except Exception as e:
-        print(f"備份英文檔失敗: {e}")
+    print(f"成功！Excel 資料已更新完畢（新增 {len(df_new)} 筆，總計 {len(df_total)} 筆）：{excel_path}")
 
 if __name__ == "__main__":
     main()
