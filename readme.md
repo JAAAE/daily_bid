@@ -14,7 +14,7 @@
 - **Streamlit 視覺化儀表板 (`app.py`)**：
   - **動態關鍵字搜尋與篩選**：支援關鍵字比對、預算金額區間過濾。
   - **Plotly 圖表分析**：提供標案數量趨勢、單位招標排行及預算分佈等互動式圖表。
-- **GitHub Actions 排程自動化 (`.github/workflows/daily_crawl.yml`)**：每日定時觸發爬蟲任務，自動更新標案資料庫。
+- **GitHub Actions 排程自動化 (`.github/workflows/daily_crawl.yml`)**：每日台灣時間晚上 20:17（`17 12 * * *` UTC，避開整點排程尖峰）自動觸發雲端爬蟲任務，更新標案資料庫。
 - **數據儲存 (`data/`)**：將每日爬取的數據清洗後整理成結構化的 `.xlsx` 檔案，方便輸出。
 - **DevContainer 支援 (`.devcontainer/`)**：即用的開發環境設定，支援 VS Code / GitHub Codespaces快速部署。
 

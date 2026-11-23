@@ -2,8 +2,8 @@ name: Daily Procurement Crawler
 
 on:
   schedule:
-    # 每天台灣時間晚上 19:00 自動執行 (UTC 11:00)
-    - cron: '0 11 * * *'
+    # 每天台灣時間晚上 20:17 自動執行 (UTC 12:17，避開整點排程尖峰)
+    - cron: '17 12 * * *'
   workflow_dispatch: # 允許手動點擊按鈕執行
 
 permissions:
