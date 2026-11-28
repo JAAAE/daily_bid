@@ -210,8 +210,13 @@ def main():
     date_list = []
     curr = start_dt
     while curr <= today_dt.replace(tzinfo=None):
-        date_list.append(curr.strftime('%Y%m%d'))
+        if curr.weekday() < 5:  # 僅抓取週一至週五，避開週末 API 回傳 500
+            date_list.append(curr.strftime('%Y%m%d'))
         curr += timedelta(days=1)
+
+    if not date_list:
+        print("期間內皆為週末（無工作日資料），直接結束！")
+        return
 
     all_new_rows = []
     failed_dates = 0
